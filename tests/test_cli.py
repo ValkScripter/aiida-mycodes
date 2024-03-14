@@ -4,7 +4,7 @@ from click.testing import CliRunner
 
 from aiida.plugins import DataFactory
 
-from aiida_mycodes.cli import export, list_
+from aiida_mycodes.cli.data_diff import export, list_
 
 
 # pylint: disable=attribute-defined-outside-init
