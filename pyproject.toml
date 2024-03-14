@@ -60,7 +60,7 @@ docs = [
 "mycodes.diff" = "aiida_mycodes.parsers:DiffParser"
 
 [project.entry-points."aiida.cmdline.data"]
-"mycodes" = "aiida_mycodes.cli:data_cli"
+"mycodes" = "aiida_mycodes.cli.data_diff:data_cli"
 
 [project.entry-points."aiida.workflows"]
 "mycodes.pw.base" = "aiida_mycodes.workflows.pw.MyPwBaseWorkChain:MyPwBaseWorkChain"
