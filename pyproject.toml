@@ -51,13 +51,13 @@ docs = [
 ]
 
 [project.entry-points."aiida.data"]
-"mycodes" = "aiida_mycodes.data:DiffParameters"
+"mycodes.diff" = "aiida_mycodes.data:DiffParameters"
 
 [project.entry-points."aiida.calculations"]
-"mycodes" = "aiida_mycodes.calculations:DiffCalculation"
+"mycodes.diff" = "aiida_mycodes.calculations:DiffCalculation"
 
 [project.entry-points."aiida.parsers"]
-"mycodes" = "aiida_mycodes.parsers:DiffParser"
+"mycodes.diff" = "aiida_mycodes.parsers:DiffParser"
 
 [project.entry-points."aiida.cmdline.data"]
 "mycodes" = "aiida_mycodes.cli:data_cli"
