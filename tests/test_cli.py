@@ -13,7 +13,7 @@ class TestDataCli:
 
     def setup_method(self):
         """Prepare nodes for cli tests."""
-        DiffParameters = DataFactory("mycodes")
+        DiffParameters = DataFactory("mycodes.diff")
         self.parameters = DiffParameters({"ignore-case": True})
         self.parameters.store()
         self.runner = CliRunner()

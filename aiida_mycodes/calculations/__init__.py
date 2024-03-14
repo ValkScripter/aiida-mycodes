@@ -9,7 +9,7 @@ from aiida.engine import CalcJob
 from aiida.orm import SinglefileData
 from aiida.plugins import DataFactory
 
-DiffParameters = DataFactory("mycodes")
+DiffParameters = DataFactory("mycodes.diff")
 
 
 class DiffCalculation(CalcJob):
@@ -29,7 +29,7 @@ class DiffCalculation(CalcJob):
             "num_machines": 1,
             "num_mpiprocs_per_machine": 1,
         }
-        spec.inputs["metadata"]["options"]["parser_name"].default = "mycodes"
+        spec.inputs["metadata"]["options"]["parser_name"].default = "mycodes.diff"
 
         # new ports
         spec.input(

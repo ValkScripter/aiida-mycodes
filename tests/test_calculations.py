@@ -14,7 +14,7 @@ def test_process(mycodes_code):
     note this does not test that the expected outputs are created of output parsing"""
 
     # Prepare input parameters
-    DiffParameters = DataFactory("mycodes")
+    DiffParameters = DataFactory("mycodes.diff")
     parameters = DiffParameters({"ignore-case": True})
 
     file1 = SinglefileData(file=os.path.join(TEST_DIR, "input_files", "file1.txt"))
@@ -31,7 +31,7 @@ def test_process(mycodes_code):
         },
     }
 
-    result = run(CalculationFactory("mycodes"), **inputs)
+    result = run(CalculationFactory("mycodes.diff"), **inputs)
     computed_diff = result["mycodes"].get_content()
 
     assert "content1" in computed_diff
