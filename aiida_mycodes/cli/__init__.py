@@ -18,7 +18,7 @@ from aiida.plugins import DataFactory
 
 
 # See aiida.cmdline.data entry point in setup.json
-@verdi_data.group("mycodes")
+@verdi_data.group("mycodes.diff")
 def data_cli():
     """Command line interface for aiida-mycodes"""
 
@@ -29,7 +29,7 @@ def list_():  # pylint: disable=redefined-builtin
     """
     Display all DiffParameters nodes
     """
-    DiffParameters = DataFactory("mycodes")
+    DiffParameters = DataFactory("mycodes.diff")
 
     qb = QueryBuilder()
     qb.append(DiffParameters)

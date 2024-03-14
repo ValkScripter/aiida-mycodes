@@ -10,7 +10,7 @@ from aiida.orm import SinglefileData
 from aiida.parsers.parser import Parser
 from aiida.plugins import CalculationFactory
 
-DiffCalculation = CalculationFactory("mycodes")
+DiffCalculation = CalculationFactory("mycodes.diff")
 
 
 class DiffParser(Parser):
