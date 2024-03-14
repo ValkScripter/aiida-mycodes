@@ -23,6 +23,7 @@ keywords = ["aiida", "plugin"]
 requires-python = ">=3.7"
 dependencies = [
     "aiida-core>=2.5,<3",
+    "aiida-quantumespresso",
     "voluptuous"
 ]
 
