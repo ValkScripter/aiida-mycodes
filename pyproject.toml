@@ -50,6 +50,9 @@ docs = [
     "markupsafe<2.1"
 ]
 
+[project.scripts]
+aiida-mycodes = "aiida_mycodes.cli:cmd_root"
+
 [project.entry-points."aiida.data"]
 "mycodes.diff" = "aiida_mycodes.data:DiffParameters"
 
