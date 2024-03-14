@@ -62,6 +62,9 @@ docs = [
 [project.entry-points."aiida.cmdline.data"]
 "mycodes" = "aiida_mycodes.cli:data_cli"
 
+[project.entry-points."aiida.workflows"]
+"mycodes.pw.base" = "aiida_mycodes.workflows.pw.MyPwBaseWorkChain:MyPwBaseWorkChain"
+
 [tool.flit.module]
 name = "aiida_mycodes"
 

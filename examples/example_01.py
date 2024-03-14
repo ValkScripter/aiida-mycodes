@@ -23,10 +23,10 @@ def test_run(mycodes_code):
     if not mycodes_code:
         # get code
         computer = helpers.get_computer()
-        mycodes_code = helpers.get_code(entry_point="mycodes", computer=computer)
+        mycodes_code = helpers.get_code(entry_point="mycodes.diff", computer=computer)
 
     # Prepare input parameters
-    DiffParameters = DataFactory("mycodes")
+    DiffParameters = DataFactory("mycodes.diff")
     parameters = DiffParameters({"ignore-case": True})
 
     SinglefileData = DataFactory("core.singlefile")
@@ -46,8 +46,8 @@ def test_run(mycodes_code):
 
     # Note: in order to submit your calculation to the aiida daemon, do:
     # from aiida.engine import submit
-    # future = submit(CalculationFactory('mycodes'), **inputs)
-    result = engine.run(CalculationFactory("mycodes"), **inputs)
+    # future = submit(CalculationFactory('mycodes.diff'), **inputs)
+    result = engine.run(CalculationFactory("mycodes.diff"), **inputs)
 
     computed_diff = result["mycodes"].get_content()
     print(f"Computed diff between files: \n{computed_diff}")
