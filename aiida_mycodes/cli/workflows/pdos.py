@@ -18,9 +18,9 @@ from aiida.engine import submit
 
 from aiida_mycodes.cli.utils import options as own_options
 from aiida_mycodes.cli.workflows import RUN, cmd_launch
-from aiida_mycodes.workflows.pdos import MyPdosWorkChain
 
 from ...utils.workflows.builder.setter import set_parallelization
+from ...workflows.pdos import MyPdosWorkChain
 
 
 def submit_workflow(
