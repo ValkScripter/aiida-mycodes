@@ -1,16 +1,51 @@
 """
 Command line scripts to launch a `MyPwBaseWorkChain`.
 """
-from aiida_quantumespresso.cli.utils import defaults, launch, options
 
+from aiida_quantumespresso.cli.utils import defaults, options
+from aiida_wannier90_workflows.cli.params import RUN
+from aiida_wannier90_workflows.utils.workflows.builder.serializer import print_builder
+from aiida_wannier90_workflows.utils.workflows.builder.setter import set_parallelization
+import click
+
+from aiida import orm
 from aiida.cmdline.params import options as options_core
 from aiida.cmdline.params import types
 from aiida.cmdline.utils import decorators
-from aiida.plugins import WorkflowFactory
+from aiida.engine import submit
+
+from aiida_mycodes.workflows.pw.base import MyPwBaseWorkChain
 
 from .. import cmd_launch
 
-# import click
+
+def submit_workflow(
+    code: orm.Code,
+    structure: orm.StructureData,
+    protocol: str,
+    ppn: int,
+    npool: int,
+    run: bool = False,
+):
+    """Submit a ``MyPwBaseWorkChain`` to perform scf calculation."""
+
+    builder = MyPwBaseWorkChain.get_builder_from_protocol(
+        code, structure=structure, protocol=protocol
+    )
+
+    # You can change parallelization here
+    parallelization = {
+        "num_mpiprocs_per_machine": ppn,
+    }
+    if npool:
+        parallelization["npool"] = npool
+
+    set_parallelization(builder, parallelization, process_class=MyPwBaseWorkChain)
+
+    print_builder(builder)
+
+    if run:
+        submit(builder)
 
 
 @cmd_launch.command("pw-base")
@@ -18,13 +53,24 @@ from .. import cmd_launch
     required=True, type=types.CodeParamType(entry_point="quantumespresso.pw")
 )
 @options.STRUCTURE(default=defaults.get_structure)
-@options.DAEMON()
+@click.option(
+    "-p",
+    "--protocol",
+    type=str,
+    default="moderate",
+    help="Protocol name to use for the workflow builder",
+)
+@click.option(
+    "--ppn",
+    type=int,
+    default=1,
+    help="Number of cores of the remote computer to run the job on",
+)
+@click.option("--npool", type=int, default=None, help="Number of pools for the QE job")
 @decorators.with_dbenv()
-def launch_workflow(code, structure, daemon):
-    """Run a `MyPwBaseWorkChain`."""
-
-    builder = WorkflowFactory("mycodes.pw.base").get_builder_from_protocol(
-        code, structure, protocol="moderate"
-    )
-
-    launch.launch_process(builder, daemon)
+@RUN()
+def launch_workflow(code, structure, protocol, ppn, npool, run):
+    """
+    Run a ``PwBandsWorkChain`` to perform scf calculation.
+    """
+    submit_workflow(code, structure, protocol, ppn, npool, run)

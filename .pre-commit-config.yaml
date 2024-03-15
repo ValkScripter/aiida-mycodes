@@ -37,3 +37,4 @@ repos:
           docs/.*|
       )$
     entry: pylint
+    args: ["--max-args=10"]

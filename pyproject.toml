@@ -24,6 +24,7 @@ requires-python = ">=3.7"
 dependencies = [
     "aiida-core>=2.5,<3",
     "aiida-quantumespresso",
+    "aiida-wannier90-workflows",
     "voluptuous"
 ]
 
@@ -66,7 +67,7 @@ aiida-mycodes = "aiida_mycodes.cli:cmd_root"
 "mycodes" = "aiida_mycodes.cli.data_diff:data_cli"
 
 [project.entry-points."aiida.workflows"]
-"mycodes.pw.base" = "aiida_mycodes.workflows.pw.MyPwBaseWorkChain:MyPwBaseWorkChain"
+"mycodes.pw.base" = "aiida_mycodes.workflows.pw.base:MyPwBaseWorkChain"
 
 [tool.flit.module]
 name = "aiida_mycodes"
