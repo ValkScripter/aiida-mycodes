@@ -14,3 +14,9 @@ def clear_database_auto(clear_database):  # pylint: disable=unused-argument
 def mycodes_code(aiida_local_code_factory):
     """Get a mycodes code."""
     return aiida_local_code_factory(executable="diff", entry_point="mycodes.diff")
+
+
+@pytest.fixture(scope="function")
+def mycodes_pw(aiida_local_code_factory):
+    """Get a mycodes pw code."""
+    return aiida_local_code_factory(executable="bash", entry_point="mycodes.pw.base")
