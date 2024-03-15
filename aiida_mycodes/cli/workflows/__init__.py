@@ -7,9 +7,9 @@ from aiida.cmdline.params.options import OverridableOption
 
 from .. import cmd_root
 
-RUN = OverridableOption(
-    "-r", "--run", is_flag=True, help="Perform an actual submission."
-)
+__all__ = ("RUN", "cmd_workflow", "cmd_launch")
+
+RUN = OverridableOption("--run", is_flag=True, help="Perform an actual submission.")
 
 
 @cmd_root.group("workflow")
