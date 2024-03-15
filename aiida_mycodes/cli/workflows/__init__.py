@@ -1,6 +1,7 @@
 """
 Module with CLI commands for the various work chain implementations.
 """
+
 # pylint: disable=cyclic-import,reimported,unused-import,wrong-import-position
 
 from aiida.cmdline.params.options import OverridableOption
@@ -25,6 +26,6 @@ def cmd_launch():
 
 
 # Import the sub commands to register them with the CLI
+# pylint: disable=wrong-import-position
+from .pdos import launch_workflow
 from .pw.base import launch_workflow
-
-# from aiida_quantumespresso.cli.workflows.pw.base import launch_workflow

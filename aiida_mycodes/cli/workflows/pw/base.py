@@ -3,9 +3,9 @@ Command line scripts to launch a `MyPwBaseWorkChain`.
 """
 
 from aiida_quantumespresso.cli.utils import options
-from aiida_quantumespresso.workflows.pw.base import PwBaseWorkChain
-from aiida_wannier90_workflows.utils.workflows.builder.serializer import print_builder
-from aiida_wannier90_workflows.utils.workflows.builder.setter import set_parallelization
+from aiida_wannier90_workflows.utils.workflows.builder.serializer import (
+    print_builder,
+)
 
 from aiida import orm
 from aiida.cmdline.params import options as options_core
@@ -15,6 +15,9 @@ from aiida.engine import submit
 
 from aiida_mycodes.cli.utils import options as own_options
 from aiida_mycodes.cli.workflows import RUN, cmd_launch
+from aiida_mycodes.utils.workflows.builder.setter import (
+    set_parallelization,
+)
 from aiida_mycodes.workflows.pw.base import MyPwBaseWorkChain
 
 
@@ -26,6 +29,7 @@ def submit_workflow(
     npool: int,
     pseudo_family: options.PseudoFamilyType,
     clean_workdir: bool = False,
+    max_wallclock_seconds: int = 86400,
     run: bool = False,
 ):
     """Submit a ``MyPwBaseWorkChain`` to perform scf calculation."""
@@ -36,20 +40,23 @@ def submit_workflow(
     )
 
     builder = MyPwBaseWorkChain.get_builder_from_protocol(
-        code, structure=structure, protocol=protocol, overrides=overrides
+        code,
+        structure=structure,
+        protocol=protocol,
+        overrides=overrides,
     )
 
     # You can change parallelization here
     parallelization = {
+        "max_wallclock_seconds": max_wallclock_seconds,
         "num_mpiprocs_per_machine": ppn,
     }
     if npool:
         parallelization["npool"] = npool
-    parallelization["max_wallclock_seconds"] = builder["pw"]["metadata"]["options"][
-        "max_wallclock_seconds"
-    ]
 
-    set_parallelization(builder, parallelization, process_class=PwBaseWorkChain)
+    set_parallelization(
+        builder, parallelization, process_class=MyPwBaseWorkChain
+    )
 
     print_builder(builder)
 
@@ -72,16 +79,33 @@ def submit_workflow(
     show_default=True,
 )
 @options.CLEAN_WORKDIR()
+@options.MAX_WALLCLOCK_SECONDS(default=86400)
 @decorators.with_dbenv()
 @RUN()
 def launch_workflow(
-    code, structure, protocol, ppn, npool, pseudo_family, clean_workdir, run
+    code,
+    structure,
+    protocol,
+    ppn,
+    npool,
+    pseudo_family,
+    clean_workdir,
+    max_wallclock_seconds,
+    run,
 ):
     """
     Run a ``MyPwBaseWorkChain`` to perform scf calculation.
     """
     submit_workflow(
-        code, structure, protocol, ppn, npool, pseudo_family, clean_workdir, run
+        code,
+        structure,
+        protocol,
+        ppn,
+        npool,
+        pseudo_family,
+        clean_workdir,
+        max_wallclock_seconds,
+        run,
     )
 
 

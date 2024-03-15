@@ -5,6 +5,7 @@ Register new commands either via the "scripts" entry point or plug them
 directly into the 'verdi' command by using AiiDA-specific entry points like
 "aiida.cmdline.data" (both in the setup.json file).
 """
+
 # pylint: disable=wrong-import-position
 
 import click
@@ -18,7 +19,9 @@ from aiida.cmdline.params import options, types
     cls=VerdiCommandGroup,
     context_settings={"help_option_names": ["-h", "--help"]},
 )
-@options.PROFILE(type=types.ProfileParamType(load_profile=True), expose_value=False)
+@options.PROFILE(
+    type=types.ProfileParamType(load_profile=True), expose_value=False
+)
 def cmd_root():
     """CLI for the `aiida-mycodes` plugin."""
 
