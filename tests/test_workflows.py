@@ -31,4 +31,4 @@ class TestMyPwBaseWorkChain:
     def test_protocol_filepath(self):
         """Test the protocol filepath of the `MyPwBaseWorkChain` workflow."""
         filepath = MyPwBaseWorkChain.get_protocol_filepath()
-        assert filepath == files(pw_protocols) / "my_pw_base_protocol.yaml"
+        assert filepath == files(pw_protocols) / "base.yaml"
