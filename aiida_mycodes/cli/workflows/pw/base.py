@@ -71,6 +71,6 @@ def submit_workflow(
 @RUN()
 def launch_workflow(code, structure, protocol, ppn, npool, run):
     """
-    Run a ``PwBandsWorkChain`` to perform scf calculation.
+    Run a ``MyPwBaseWorkChain`` to perform scf calculation.
     """
     submit_workflow(code, structure, protocol, ppn, npool, run)
