@@ -26,12 +26,12 @@ from aiida.plugins import (
     WorkflowFactory,
 )
 
-from aiida_mycodes.workflows.pw.base import MyPwBaseWorkChain
-
 if __name__ == "__main__":
     from aiida_mycodes.workflows import protocols
+    from aiida_mycodes.workflows.pw.base import MyPwBaseWorkChain
 else:
     from . import protocols
+    from ..workflows.pw.base import MyPwBaseWorkChain
 
 PwBaseWorkChain = WorkflowFactory("quantumespresso.pw.base")
 DosCalculation = CalculationFactory("quantumespresso.dos")
