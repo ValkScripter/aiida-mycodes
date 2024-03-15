@@ -2,8 +2,7 @@
 Command line scripts to launch a `MyPwBaseWorkChain`.
 """
 
-from aiida_quantumespresso.cli.utils import defaults, options
-from aiida_wannier90_workflows.cli.params import RUN
+from aiida_quantumespresso.cli.utils import options
 from aiida_wannier90_workflows.utils.workflows.builder.serializer import print_builder
 from aiida_wannier90_workflows.utils.workflows.builder.setter import set_parallelization
 import click
@@ -16,7 +15,7 @@ from aiida.engine import submit
 
 from aiida_mycodes.workflows.pw.base import MyPwBaseWorkChain
 
-from .. import cmd_launch
+from .. import RUN, cmd_launch
 
 
 def submit_workflow(
@@ -52,19 +51,20 @@ def submit_workflow(
 @options_core.CODE(
     required=True, type=types.CodeParamType(entry_point="quantumespresso.pw")
 )
-@options.STRUCTURE(default=defaults.get_structure)
+# @options.STRUCTURE(default=defaults.get_structure)
+@options.STRUCTURE(required=True)
 @click.option(
     "-p",
     "--protocol",
     type=str,
     default="moderate",
-    help="Protocol name to use for the workflow builder",
+    help="Protocol name to use for the workflow builder [default='moderate']",
 )
 @click.option(
     "--ppn",
     type=int,
     default=1,
-    help="Number of cores of the remote computer to run the job on",
+    help="Number of cores of the remote computer to run the job on [default=1]",
 )
 @click.option("--npool", type=int, default=None, help="Number of pools for the QE job")
 @decorators.with_dbenv()
