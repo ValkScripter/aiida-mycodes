@@ -29,7 +29,7 @@ class MyPwBaseWorkChain(PwBaseWorkChain):
     @classmethod
     def get_protocol_filepath(cls):
         """Return ``pathlib.Path`` to the ``.yaml`` file that defines the protocols."""
-        return files(pw_protocols) / "my_pw_base_protocol.yaml"
+        return files(pw_protocols) / "base.yaml"
 
     @classmethod
     def get_builder_from_protocol(cls, *args, **kwargs):
