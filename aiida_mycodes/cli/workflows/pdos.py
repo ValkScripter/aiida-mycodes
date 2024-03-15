@@ -79,7 +79,8 @@ def submit_workflow(
     print_builder(builder)
 
     if run:
-        submit(builder)
+        result = submit(builder)
+        print(f"Submitted {result.process_label}<{result.pk}>")
 
 
 @cmd_launch.command("pdos")
