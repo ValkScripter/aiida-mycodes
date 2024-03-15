@@ -30,12 +30,14 @@ def submit_workflow(
 ):
     """Submit a ``MyPwBaseWorkChain`` to perform scf calculation."""
 
-    builder = MyPwBaseWorkChain.get_builder_from_protocol(
-        code, structure=structure, protocol=protocol
+    overrides = dict(
+        clean_workdir=clean_workdir,
+        pseudo_family=pseudo_family.label,
     )
 
-    builder["clean_workdir"] = clean_workdir
-    builder["pseudo_family"] = pseudo_family
+    builder = MyPwBaseWorkChain.get_builder_from_protocol(
+        code, structure=structure, protocol=protocol, overrides=overrides
+    )
 
     # You can change parallelization here
     parallelization = {

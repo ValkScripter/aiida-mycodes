@@ -9,7 +9,9 @@ from .. import cmd_root
 
 __all__ = ("RUN", "cmd_workflow", "cmd_launch")
 
-RUN = OverridableOption("--run", is_flag=True, help="Perform an actual submission.")
+RUN = OverridableOption(
+    "-r", "--run", is_flag=True, help="Perform an actual submission."
+)
 
 
 @cmd_root.group("workflow")
