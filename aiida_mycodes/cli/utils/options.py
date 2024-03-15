@@ -1,6 +1,7 @@
 """
 My own pre-defined overridable options for command line interface parameters.
 """
+
 import click
 
 from aiida.cmdline.params.options import OverridableOption

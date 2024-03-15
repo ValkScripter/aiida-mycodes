@@ -68,6 +68,7 @@ aiida-mycodes = "aiida_mycodes.cli:cmd_root"
 
 [project.entry-points."aiida.workflows"]
 "mycodes.pw.base" = "aiida_mycodes.workflows.pw.base:MyPwBaseWorkChain"
+"mycodes.pdos" = "aiida_mycodes.workflows.pdos:MyPdosWorkChain"
 
 [tool.flit.module]
 name = "aiida_mycodes"
