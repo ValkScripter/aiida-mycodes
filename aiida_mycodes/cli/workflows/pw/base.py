@@ -3,6 +3,7 @@ Command line scripts to launch a `MyPwBaseWorkChain`.
 """
 
 from aiida_quantumespresso.cli.utils import options
+from aiida_quantumespresso.workflows.pw.base import PwBaseWorkChain
 from aiida_wannier90_workflows.utils.workflows.builder.serializer import print_builder
 from aiida_wannier90_workflows.utils.workflows.builder.setter import set_parallelization
 import click
@@ -38,8 +39,11 @@ def submit_workflow(
     }
     if npool:
         parallelization["npool"] = npool
+    parallelization["max_wallclock_seconds"] = builder["pw"]["metadata"]["options"][
+        "max_wallclock_seconds"
+    ]
 
-    set_parallelization(builder, parallelization, process_class=MyPwBaseWorkChain)
+    set_parallelization(builder, parallelization, process_class=PwBaseWorkChain)
 
     print_builder(builder)
 
