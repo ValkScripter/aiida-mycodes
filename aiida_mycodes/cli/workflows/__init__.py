@@ -3,7 +3,13 @@ Module with CLI commands for the various work chain implementations.
 """
 # pylint: disable=cyclic-import,reimported,unused-import,wrong-import-position
 
+from aiida.cmdline.params.options import OverridableOption
+
 from .. import cmd_root
+
+RUN = OverridableOption(
+    "-r", "--run", is_flag=True, help="Perform an actual submission."
+)
 
 
 @cmd_root.group("workflow")
