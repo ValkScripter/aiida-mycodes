@@ -1,5 +1,6 @@
 default_inputs:
     clean_workdir: False
+    align_to_fermi: True
     scf:
         pw:
             parameters:
@@ -18,6 +19,8 @@ default_inputs:
     dos:
         parameters:
             DOS:
+                Emin: -5.0
+                Emax: 5.0
                 DeltaE: 0.02
         metadata:
             options:
@@ -28,6 +31,8 @@ default_inputs:
     projwfc:
         parameters:
             PROJWFC:
+                Emin: -5.0
+                Emax: 5.0
                 DeltaE: 0.02
         metadata:
             options:
