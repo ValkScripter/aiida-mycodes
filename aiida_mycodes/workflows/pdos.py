@@ -48,11 +48,6 @@ Related Resources:
 
 import warnings
 
-from aiida_quantumespresso.utils.mapping import prepare_process_inputs
-from aiida_quantumespresso.workflows.protocols.utils import (
-    ProtocolMixin,
-    recursive_merge,
-)
 from importlib_resources import files
 import jsonschema
 
@@ -61,7 +56,10 @@ from aiida.common import AttributeDict
 from aiida.engine import ToContext, WorkChain, if_
 from aiida.orm.nodes.data.base import to_aiida_type
 
+from aiida_mycodes.utils.mapping import prepare_process_inputs
+
 from . import protocols
+from .protocols.utils import ProtocolMixin, recursive_merge
 
 
 def get_parameter_schema():

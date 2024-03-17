@@ -10,15 +10,6 @@ from aiida_quantumespresso.common.types import (
     RestartType,
     SpinType,
 )
-from aiida_quantumespresso.utils.bands import get_highest_occupied_band
-from aiida_quantumespresso.utils.defaults.calculation import (
-    pw as qe_defaults,
-)
-from aiida_quantumespresso.workflows.protocols.utils import (
-    ProtocolMixin,
-    get_starting_magnetization,
-    recursive_merge,
-)
 from importlib_resources import files
 
 from aiida import orm
@@ -32,6 +23,14 @@ from aiida.engine import (
     while_,
 )
 from aiida.plugins import CalculationFactory, GroupFactory
+
+from aiida_mycodes.utils.bands import get_highest_occupied_band
+from aiida_mycodes.utils.defaults.calculation import pw as qe_defaults
+from aiida_mycodes.workflows.protocols.utils import (
+    ProtocolMixin,
+    get_starting_magnetization,
+    recursive_merge,
+)
 
 from ..protocols import pw as pw_protocols
 
