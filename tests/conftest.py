@@ -67,7 +67,7 @@ def fixture_code(fixture_localhost):
                 computer=fixture_localhost,
                 filepath_executable="/bin/true",
                 default_calc_job_plugin=entry_point_name,
-            )
+            ).store()
 
     return _fixture_code
 
