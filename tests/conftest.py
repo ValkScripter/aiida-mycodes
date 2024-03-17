@@ -15,14 +15,6 @@ pytest_plugins = [
 ]  # pylint: disable=invalid-name
 
 
-@pytest.fixture(scope="function")
-def mycodes_code(aiida_local_code_factory):
-    """Get a mycodes code."""
-    return aiida_local_code_factory(
-        executable="diff", entry_point="mycodes.diff"
-    )
-
-
 @pytest.fixture(scope="session")
 def filepath_tests():
     """Return the absolute filepath of the `tests` folder.
