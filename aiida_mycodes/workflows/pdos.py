@@ -250,7 +250,7 @@ class MyPdosWorkChain(ProtocolMixin, WorkChain):
             'align_to_fermi',
             valid_type=orm.Bool,
             serializer=to_aiida_type,
-            default=lambda: orm.Bool(True),
+            default=lambda: orm.Bool(False),
             help=(
                 'If true, Emin=>Emin-Efermi & Emax=>Emax-Efermi, where Efermi is taken from the `nscf` calculation. '
                 'Note that it only makes sense to align `Emax` and `Emin` to the fermi level in case they are actually '
@@ -408,6 +408,7 @@ class MyPdosWorkChain(ProtocolMixin, WorkChain):
         builder = cls.get_builder()
         builder.structure = structure
         builder.clean_workdir = orm.Bool(inputs["clean_workdir"])
+        builder.align_to_fermi = orm.Bool(inputs["align_to_fermi"])
         builder.scf = scf
         builder.nscf = nscf
         builder.dos.code = dos_code
