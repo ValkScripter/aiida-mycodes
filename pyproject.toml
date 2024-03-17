@@ -73,6 +73,12 @@ aiida-mycodes = "aiida_mycodes.cli:cmd_root"
 [tool.flit.module]
 name = "aiida_mycodes"
 
+[tool.flit.sdist]
+exclude = [
+    'docs/',
+    'tests/',
+]
+
 [tool.pylint.format]
 max-line-length = 125
 
@@ -85,8 +91,15 @@ disable = [
 
 [tool.pytest.ini_options]
 # Configuration for [pytest](https://docs.pytest.org)
-python_files = "test_*.py example_*.py"
+testpaths = [
+    'tests',
+]
 filterwarnings = [
+    'ignore:Object of type .* not in session, .* operation along .* will not proceed:sqlalchemy.exc.SAWarning',
+    'ignore:Creating AiiDA configuration folder.*:UserWarning',
+    'ignore::DeprecationWarning:frozendict:',
+    'ignore::DeprecationWarning:pkg_resources:',
+    'ignore::DeprecationWarning:sqlalchemy_utils:',
     "ignore::DeprecationWarning:aiida:",
     "ignore:Creating AiiDA configuration folder:",
     "ignore::DeprecationWarning:plumpy:",
@@ -111,7 +124,10 @@ legacy_tox_ini = """
 envlist = py38
 
 [testenv]
+description = Run the pytest tests
 usedevelop=True
+extras = tests
+commands = pytest {posargs}
 
 [testenv:py{37,38,39,310}]
 description = Run the test suite against a python version
@@ -120,7 +136,9 @@ commands = pytest {posargs}
 
 [testenv:pre-commit]
 description = Run the pre-commit checks
-extras = pre-commit
+extras =
+    tests
+    pre-commit
 commands = pre-commit run {posargs}
 
 [testenv:docs]
