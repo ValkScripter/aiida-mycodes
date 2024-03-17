@@ -31,6 +31,7 @@ def submit_workflow(
     npool: int,
     pseudo_family: options.PseudoFamilyType,
     clean_workdir: bool = False,
+    align_to_fermi: bool = True,
     max_wallclock_seconds: int = 86400,
     run: bool = False,
 ):
@@ -51,6 +52,7 @@ def submit_workflow(
 
     overrides = {
         "clean_workdir": clean_workdir,
+        "align_to_fermi": align_to_fermi,
         "scf": pw_overrides,
         "nscf": pw_overrides,
     }
@@ -62,12 +64,6 @@ def submit_workflow(
         structure=structure,
         protocol=protocol,
         overrides=overrides,
-    )
-
-    print(
-        # pylint: disable=no-member
-        "align_to_fermi: ",
-        builder.align_to_fermi().value,
     )
 
     # You can change parallelization here
@@ -101,6 +97,7 @@ def submit_workflow(
     show_default=True,
 )
 @options.CLEAN_WORKDIR()
+@options.ALIGN_TO_FERMI()
 @options.MAX_WALLCLOCK_SECONDS(default=86400)
 @decorators.with_dbenv()
 @RUN()
@@ -112,6 +109,7 @@ def launch_workflow(
     npool,
     pseudo_family,
     clean_workdir,
+    align_to_fermi,
     max_wallclock_seconds,
     run,
 ):
@@ -126,6 +124,7 @@ def launch_workflow(
         npool,
         pseudo_family,
         clean_workdir,
+        align_to_fermi,
         max_wallclock_seconds,
         run,
     )

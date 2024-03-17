@@ -1,5 +1,5 @@
 default_inputs:
-    clean_workdir: False
+    clean_workdir: True
     align_to_fermi: True
     scf:
         pw:
