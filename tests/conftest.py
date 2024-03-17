@@ -999,7 +999,7 @@ def generate_inputs_xspectra(
 def generate_workchain_pw(
     generate_workchain, generate_inputs_pw, generate_calc_job_node
 ):
-    """Generate an instance of a ``PwBaseWorkChain``."""
+    """Generate an instance of a ``MyPwBaseWorkChain``."""
 
     def _generate_workchain_pw(
         exit_code=None,
@@ -1007,11 +1007,11 @@ def generate_workchain_pw(
         return_inputs=False,
         pw_outputs=None,
     ):
-        """Generate an instance of a ``PwBaseWorkChain``.
+        """Generate an instance of a ``MyPwBaseWorkChain``.
 
         :param exit_code: exit code for the ``PwCalculation``.
-        :param inputs: inputs for the ``PwBaseWorkChain``.
-        :param return_inputs: return the inputs of the ``PwBaseWorkChain``.
+        :param inputs: inputs for the ``MyPwBaseWorkChain``.
+        :param return_inputs: return the inputs of the ``MyPwBaseWorkChain``.
         :param pw_outputs: ``dict`` of outputs for the ``PwCalculation``. The keys must correspond to the link labels
             and the values to the output nodes.
         """
@@ -1020,7 +1020,7 @@ def generate_workchain_pw(
         from aiida.common import LinkType
         from aiida.orm import Dict
 
-        entry_point = "quantumespresso.pw.base"
+        entry_point = "mycodes.pw.base"
 
         if inputs is None:
             pw_inputs = generate_inputs_pw()
@@ -1094,7 +1094,7 @@ def generate_workchain_ph(
 def generate_workchain_pdos(
     generate_workchain, generate_inputs_pw, fixture_code
 ):
-    """Generate an instance of a `PdosWorkChain`."""
+    """Generate an instance of a `MyPdosWorkChain`."""
 
     def _generate_workchain_pdos():
         from aiida_quantumespresso.utils.resources import (
@@ -1103,7 +1103,7 @@ def generate_workchain_pdos(
 
         from aiida.orm import Bool, Dict
 
-        entry_point = "quantumespresso.pdos"
+        entry_point = "mycodes.pdos"
 
         scf_pw_inputs = generate_inputs_pw()
         kpoints = scf_pw_inputs.pop("kpoints")
