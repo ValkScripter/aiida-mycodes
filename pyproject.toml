@@ -54,18 +54,6 @@ docs = [
 [project.scripts]
 aiida-mycodes = "aiida_mycodes.cli:cmd_root"
 
-[project.entry-points."aiida.data"]
-"mycodes.diff" = "aiida_mycodes.data:DiffParameters"
-
-[project.entry-points."aiida.calculations"]
-"mycodes.diff" = "aiida_mycodes.calculations:DiffCalculation"
-
-[project.entry-points."aiida.parsers"]
-"mycodes.diff" = "aiida_mycodes.parsers:DiffParser"
-
-[project.entry-points."aiida.cmdline.data"]
-"mycodes" = "aiida_mycodes.cli.data_diff:data_cli"
-
 [project.entry-points."aiida.workflows"]
 "mycodes.pw.base" = "aiida_mycodes.workflows.pw.base:MyPwBaseWorkChain"
 "mycodes.pdos" = "aiida_mycodes.workflows.pdos:MyPdosWorkChain"
@@ -100,10 +88,10 @@ filterwarnings = [
     'ignore::DeprecationWarning:frozendict:',
     'ignore::DeprecationWarning:pkg_resources:',
     'ignore::DeprecationWarning:sqlalchemy_utils:',
-    "ignore::DeprecationWarning:aiida:",
-    "ignore:Creating AiiDA configuration folder:",
-    "ignore::DeprecationWarning:plumpy:",
-    "ignore::DeprecationWarning:yaml:",
+    'ignore::DeprecationWarning:aiida:',
+    'ignore:Creating AiiDA configuration folder:',
+    'ignore::DeprecationWarning:plumpy:',
+    'ignore::DeprecationWarning:yaml:',
 ]
 
 [tool.coverage.run]
