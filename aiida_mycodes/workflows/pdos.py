@@ -1,53 +1,223 @@
-"""
-My Workchain to run a Quantum ESPRESSO pw.x calculation with:
-- native automated error handling and restarts.
-- custom protocol files in subdirectory `my_protocols`
+"""Workchain to run Quantum ESPRESSO calculations that generate DoS and PDoS for a structure.
+
+This requires four computations:
+
+- SCF (pw.x), to generate the initial wavefunction.
+- NSCF (pw.x), to generate eigenvalues, generally with a denser k-point mesh and tetrahedra occupations.
+- Total DoS (dos.x), to generate total densities of state.
+- Partial DoS (projwfc.x), to generate partial densities of state, by projecting wavefunctions onto atomic orbitals.
+
+Additional functionality:
+
+- Setting ``'align_to_fermi': True`` in the inputs will ensure that the energy range is centred around the Fermi
+  energy when `Emin` and `Emax` are provided for both the `dos` and `projwfc` inputs. This is useful when you are only
+  interested in a certain energy range around the Fermi energy. By default the energy range is extracted from the
+  NSCF calculation.
+
+Storage memory management:
+
+The wavefunction file(s) created by the nscf calculation can get very large (>100Gb).
+These files must be copied to dos and projwfc calculations, so storage memory limits can easily be exceeded.
+If this is an issue, setting the input ``serial_clean`` to ``True`` will not run these calculations in parallel,
+but instead run in serial and clean directories when they are no longer required:
+
+- Run the scf workchain
+- Run the nscf workchain, then clean the scf calculation directories
+- Run the dos calculation, then clean its directory
+- Run the projwfc calculation, then clean its directory
+
+Setting the input ``clean_workdir`` to ``True``, will clean any remaining directories, after the whole workchain has
+terminated.
+
+Also note that projwfc will fail if the scf/nscf calculations were run with a different number of procs/pools and
+``wf_collect=.false.`` (this setting is deprecated in newer version of QE).
+
+Related Resources:
+
+- `Electronic structure calculations user guide <https://www.quantum-espresso.org/Doc/pw_user_guide/node10.html>`_
+- `Density of States calculation blog <https://blog.levilentz.com/density-of-states-calculation/>`_
+- `Quantum ESPRESSO tutorial slides <http://indico.ictp.it/event/7921/session/320/contribution/1261/material/0/0.pdf>`_
+
+.. warning::
+
+    For QE v6.1, there is an issue using ``tetrahedra`` occupations, as is recommended for ``nscf``,
+    and both ``dos.x`` and ``projwfc.x`` will raise errors when reading the xml file
+    (see `this post <https://lists.quantum-espresso.org/pipermail/users/2017-November/039656.html>`_).
+
 """
 
-from aiida_quantumespresso.workflows.pdos import (
-    PdosWorkChain,
-    to_aiida_type,
-    validate_dos,
-    validate_inputs,
-    validate_nscf,
-    validate_projwfc,
-    validate_scf,
-)
+import warnings
+
+from aiida_quantumespresso.utils.mapping import prepare_process_inputs
 from aiida_quantumespresso.workflows.protocols.utils import (
+    ProtocolMixin,
     recursive_merge,
 )
 from importlib_resources import files
+import jsonschema
 
-from aiida import orm
-from aiida.engine import if_
-from aiida.plugins import (
-    CalculationFactory,
-    GroupFactory,
-    WorkflowFactory,
+from aiida import orm, plugins
+from aiida.common import AttributeDict
+from aiida.engine import ToContext, WorkChain, if_
+from aiida.orm.nodes.data.base import to_aiida_type
+
+from . import protocols
+
+
+def get_parameter_schema():
+    """Return the ``MyPdosWorkChain`` input parameter schema."""
+    return {
+        "$schema": "http://json-schema.org/draft-07/schema",
+        "type": "object",
+        "required": ["DeltaE"],
+        "additionalProperties": False,
+        "properties": {
+            "Emin": {
+                "description": "min energy (eV) for DOS plot",
+                "type": "number",
+            },
+            "Emax": {
+                "description": "max energy (eV) for DOS plot",
+                "type": "number",
+            },
+            "DeltaE": {
+                "description": "energy grid step (eV)",
+                "type": "number",
+                "minimum": 0,
+            },
+            "ngauss": {
+                "description": "Type of gaussian broadening.",
+                "type": "integer",
+                "enum": [0, 1, -1, -99],
+            },
+            "degauss": {
+                "description": "gaussian broadening, Ry (not eV!)",
+                "type": "number",
+                "minimum": 0,
+            },
+        },
+    }
+
+
+# pylint: disable=inconsistent-return-statements
+def validate_inputs(value, _):
+    """Validate the top level namespace.
+
+    - Check that either the `scf` or `nscf.pw.parent_folder` inputs is provided.
+    - Check that the `Emin`, `Emax` and `DeltaE` inputs are the same for the `dos` and `projwfc` namespaces.
+    - Check that `Emin` and `Emax` are provided in case `align_to_fermi` is set to `True`.
+    """
+    # Check that either the `scf` input or `nscf.pw.parent_folder` is provided.
+
+    if "scf" in value and "parent_folder" in value["nscf"]["pw"]:
+        warnings.warn(
+            "Both the `scf` and `nscf.pw.parent_folder` inputs were provided. The SCF calculation will "
+            "be run with the inputs provided in `scf` and the `nscf.pw.parent_folder` will be ignored."
+        )
+    elif (
+        not "scf" in value
+        and not "parent_folder" in value["nscf"]["pw"]
+    ):
+        return "Specifying either the `scf` or `nscf.pw.parent_folder` input is required."
+
+    for par in ["Emin", "Emax", "DeltaE"]:
+        if value["dos"]["parameters"]["DOS"].get(par, None) != value[
+            "projwfc"
+        ]["parameters"]["PROJWFC"].get(par, None):
+            return f"The `{par}`` parameter has to be equal for the `dos` and `projwfc` inputs."
+
+    if value.get("align_to_fermi", False):
+        for par in ["Emin", "Emax"]:
+            if value["dos"]["parameters"]["DOS"].get(par, None) is None:
+                return f"The `{par}`` parameter must be set in case `align_to_fermi` is set to `True`."
+
+
+def validate_scf(value, _):
+    """Validate the scf parameters."""
+    parameters = value["pw"]["parameters"].get_dict()
+    if parameters.get("CONTROL", {}).get("calculation", "scf") != "scf":
+        return "`CONTOL.calculation` in `scf.pw.parameters` is not set to `scf`."
+
+
+def validate_nscf(value, _):
+    """Validate the nscf parameters."""
+    parameters = value["pw"]["parameters"].get_dict()
+    if (
+        parameters.get("CONTROL", {}).get("calculation", "scf")
+        != "nscf"
+    ):
+        return "`CONTOL.calculation` in `nscf.pw.parameters` is not set to `nscf`."
+    if (
+        parameters.get("SYSTEM", {}).get("occupations", None)
+        != "tetrahedra"
+    ):
+        return "`SYSTEM.occupations` in `nscf.pw.parameters` is not set to `tetrahedra`."
+
+
+def validate_dos(value, _):
+    """Validate DOS parameters.
+
+    - shared: Emin | Emax | DeltaE
+    - dos.x only: ngauss | degauss | bz_sum
+    - projwfc.x only: ngauss | degauss | pawproj | n_proj_boxes | irmin(3,n_proj_boxes) | irmax(3,n_proj_boxes)
+
+    """
+    jsonschema.validate(
+        value["parameters"].get_dict()["DOS"], get_parameter_schema()
+    )
+
+
+def validate_projwfc(value, _):
+    """Validate DOS parameters.
+
+    - shared: Emin | Emax | DeltaE
+    - dos.x only: ngauss | degauss | bz_sum
+    - projwfc.x only: ngauss | degauss | pawproj | n_proj_boxes | irmin(3,n_proj_boxes) | irmax(3,n_proj_boxes)
+
+    """
+    jsonschema.validate(
+        value["parameters"].get_dict()["PROJWFC"],
+        get_parameter_schema(),
+    )
+
+
+# pylint: enable=inconsistent-return-statements
+
+
+def clean_calcjob_remote(node):
+    """Clean the remote directory of a ``CalcJobNode``."""
+    cleaned = False
+    try:
+        node.outputs.remote_folder._clean()  # pylint: disable=protected-access
+        cleaned = True
+    except (OSError, KeyError):
+        pass
+    return cleaned
+
+
+def clean_workchain_calcs(workchain):
+    """Clean all remote directories of a workchain's descendant calculations."""
+    cleaned_calcs = []
+
+    for called_descendant in workchain.called_descendants:
+        if isinstance(called_descendant, orm.CalcJobNode):
+            if clean_calcjob_remote(called_descendant):
+                cleaned_calcs.append(called_descendant.pk)
+
+    return cleaned_calcs
+
+
+MyPwBaseWorkChain = plugins.WorkflowFactory("mycodes.pw.base")
+DosCalculation = plugins.CalculationFactory("quantumespresso.dos")
+ProjwfcCalculation = plugins.CalculationFactory(
+    "quantumespresso.projwfc"
 )
 
-if __name__ == "__main__":
-    from aiida_mycodes.workflows import protocols
-    from aiida_mycodes.workflows.pw.base import MyPwBaseWorkChain
-else:
-    from . import protocols
-    from ..workflows.pw.base import MyPwBaseWorkChain
 
-PwBaseWorkChain = WorkflowFactory("quantumespresso.pw.base")
-DosCalculation = CalculationFactory("quantumespresso.dos")
-ProjwfcCalculation = CalculationFactory("quantumespresso.projwfc")
+class MyPdosWorkChain(ProtocolMixin, WorkChain):
+    """A WorkChain to compute Total & Partial Density of States of a structure, using Quantum Espresso."""
 
-PwCalculation = CalculationFactory("quantumespresso.pw")
-SsspFamily = GroupFactory("pseudo.family.sssp")
-PseudoDojoFamily = GroupFactory("pseudo.family.pseudo_dojo")
-CutoffsPseudoPotentialFamily = GroupFactory("pseudo.family.cutoffs")
-
-
-class MyPdosWorkChain(PdosWorkChain):
-    """
-    My PdosWorkChain calling my own protocol
-    """
-
+    # pylint: disable=no-member,inconsistent-return-statements
     @classmethod
     def define(cls, spec):
         # yapf: disable
@@ -80,7 +250,7 @@ class MyPdosWorkChain(PdosWorkChain):
             'align_to_fermi',
             valid_type=orm.Bool,
             serializer=to_aiida_type,
-            default=lambda: orm.Bool(False),
+            default=lambda: orm.Bool(True),
             help=(
                 'If true, Emin=>Emin-Efermi & Emax=>Emax-Efermi, where Efermi is taken from the `nscf` calculation. '
                 'Note that it only makes sense to align `Emax` and `Emin` to the fermi level in case they are actually '
@@ -92,7 +262,7 @@ class MyPdosWorkChain(PdosWorkChain):
             namespace='scf',
             exclude=('clean_workdir', 'pw.structure', 'pw.parent_folder'),
             namespace_options={
-                'help': 'Inputs for the `MyPwBaseWorkChain` of the `scf` calculation.',
+                'help': 'Inputs for the `MyMyPwBaseWorkChain` of the `scf` calculation.',
                 'validator': validate_scf,
                 'required': False,
                 'populate_defaults': False,
@@ -162,7 +332,7 @@ class MyPdosWorkChain(PdosWorkChain):
         spec.exit_code(404, 'ERROR_SUB_PROCESS_FAILED_BOTH',
             message='both the DOS and PROJWFC sub process failed')
 
-        spec.expose_outputs(PwBaseWorkChain, namespace='nscf')
+        spec.expose_outputs(MyPwBaseWorkChain, namespace='nscf')
         spec.expose_outputs(DosCalculation, namespace='dos')
         spec.expose_outputs(ProjwfcCalculation, namespace='projwfc')
 
@@ -234,13 +404,12 @@ class MyPdosWorkChain(PdosWorkChain):
             metadata_projwfc["options"] = recursive_merge(
                 metadata_projwfc["options"], options
             )
-
+        # pylint: disable=no-member
         builder = cls.get_builder()
         builder.structure = structure
         builder.clean_workdir = orm.Bool(inputs["clean_workdir"])
         builder.scf = scf
         builder.nscf = nscf
-        # pylint: disable=no-member
         builder.dos.code = dos_code
         builder.dos.parameters = orm.Dict(
             inputs.get("dos", {}).get("parameters")
@@ -255,8 +424,310 @@ class MyPdosWorkChain(PdosWorkChain):
 
         return builder
 
+    def setup(self):
+        """Initialize context variables that are used during the logical flow of the workchain."""
+        self.ctx.serial_clean = (
+            "serial_clean" in self.inputs
+            and self.inputs.serial_clean.value
+        )
+        self.ctx.dry_run = (
+            "dry_run" in self.inputs and self.inputs.dry_run.value
+        )
 
-if __name__ == "__main__":
-    print("hi")
-    print(PdosWorkChain.get_protocol_filepath())
-    print(MyPdosWorkChain.get_protocol_filepath())
+    def serial_clean(self):
+        """Return whether dos and projwfc calculations should be run in serial.
+
+        The calculation remote folders will be cleaned before the next process step.
+        """
+        return self.ctx.serial_clean
+
+    def should_run_scf(self):
+        """Return whether the work chain should run an SCF calculation."""
+        return "scf" in self.inputs
+
+    def run_scf(self):
+        """Run an SCF calculation, to generate the wavefunction."""
+        inputs = AttributeDict(
+            self.exposed_inputs(MyPwBaseWorkChain, "scf")
+        )
+        inputs.pw.structure = self.inputs.structure
+
+        inputs.metadata.call_link_label = "scf"
+        inputs = prepare_process_inputs(MyPwBaseWorkChain, inputs)
+
+        if self.ctx.dry_run:
+            return inputs
+
+        future = self.submit(MyPwBaseWorkChain, **inputs)
+
+        self.report(f"launching SCF MyPwBaseWorkChain<{future.pk}>")
+
+        return ToContext(workchain_scf=future)
+
+    def inspect_scf(self):
+        """Verify that the SCF calculation finished successfully."""
+        workchain = self.ctx.workchain_scf
+        if not workchain.is_finished_ok:
+            self.report(
+                f"SCF MyPwBaseWorkChain failed with exit status {workchain.exit_status}"
+            )
+            return self.exit_codes.ERROR_SUB_PROCESS_FAILED_SCF
+
+        self.ctx.scf_parent_folder = workchain.outputs.remote_folder
+
+    def run_nscf(self):
+        """Run an NSCF calculation, to generate eigenvalues with a denser k-point mesh.
+
+        This calculation modifies the base scf calculation inputs by:
+
+        - Using the parent folder from the scf calculation.
+        - Replacing the kpoints, if an alternative is specified for nscf.
+        - Changing ``SYSTEM.occupations`` to 'tetrahedra'.
+        - Changing ``SYSTEM.nosym`` to True, to avoid generation of additional k-points in low symmetry cases.
+        - Replace the ``pw.metadata.options``, if an alternative is specified for nscf.
+
+        """
+        inputs = AttributeDict(
+            self.exposed_inputs(MyPwBaseWorkChain, "nscf")
+        )
+        if "scf" in self.inputs:
+            inputs.pw.parent_folder = self.ctx.scf_parent_folder
+        inputs.pw.structure = self.inputs.structure
+
+        inputs.metadata.call_link_label = "nscf"
+        inputs = prepare_process_inputs(MyPwBaseWorkChain, inputs)
+
+        if self.ctx.dry_run:
+            return inputs
+
+        future = self.submit(MyPwBaseWorkChain, **inputs)
+
+        self.report(f"launching NSCF MyPwBaseWorkChain<{future.pk}>")
+
+        return ToContext(workchain_nscf=future)
+
+    def inspect_nscf(self):
+        """Verify that the NSCF calculation finished successfully."""
+        workchain = self.ctx.workchain_nscf
+        if not workchain.is_finished_ok:
+            self.report(
+                f"NSCF MyPwBaseWorkChain failed with exit status {workchain.exit_status}"
+            )
+            return self.exit_codes.ERROR_SUB_PROCESS_FAILED_NSCF
+
+        if self.ctx.serial_clean:
+            # we no longer require the scf remote folder, so can clean it
+            cleaned_calcs = clean_workchain_calcs(
+                self.ctx.workchain_scf
+            )
+            if cleaned_calcs:
+                self.report(
+                    f"cleaned remote folders of SCF calculations: {' '.join(map(str, cleaned_calcs))}"
+                )
+
+        self.ctx.nscf_emin = workchain.outputs.output_band.get_array(
+            "bands"
+        ).min()
+        self.ctx.nscf_emax = workchain.outputs.output_band.get_array(
+            "bands"
+        ).max()
+        self.ctx.nscf_parent_folder = workchain.outputs.remote_folder
+        if "fermi_energy" in workchain.outputs.output_parameters.dict:
+            self.ctx.nscf_fermi = (
+                workchain.outputs.output_parameters.dict.fermi_energy
+            )
+        else:
+            fermi_energy_up = (
+                workchain.outputs.output_parameters.dict.fermi_energy_up
+            )
+            fermi_energy_down = (
+                workchain.outputs.output_parameters.dict.fermi_energy_down
+            )
+            self.ctx.nscf_fermi = max(
+                fermi_energy_down, fermi_energy_up
+            )
+
+    def _generate_dos_inputs(self):
+        """Run DOS calculation, to generate total Densities of State."""
+        dos_inputs = AttributeDict(
+            self.exposed_inputs(DosCalculation, "dos")
+        )
+        dos_inputs.parent_folder = self.ctx.nscf_parent_folder
+        dos_parameters = self.inputs.dos.parameters.get_dict()
+
+        if dos_parameters.pop("align_to_fermi", False):
+            dos_parameters["DOS"]["Emin"] = (
+                dos_parameters["Emin"] + self.ctx.nscf_fermi
+            )
+            dos_parameters["DOS"]["Emax"] = (
+                dos_parameters["Emax"] + self.ctx.nscf_fermi
+            )
+
+        dos_inputs.parameters = orm.Dict(dos_parameters)
+        dos_inputs["metadata"]["call_link_label"] = "dos"
+        return dos_inputs
+
+    def _generate_projwfc_inputs(self):
+        """Run Projwfc calculation, to generate partial Densities of State."""
+        projwfc_inputs = AttributeDict(
+            self.exposed_inputs(ProjwfcCalculation, "projwfc")
+        )
+        projwfc_inputs.parent_folder = self.ctx.nscf_parent_folder
+        projwfc_parameters = self.inputs.projwfc.parameters.get_dict()
+
+        if projwfc_parameters.pop("align_to_fermi", False):
+            projwfc_parameters["PROJWFC"]["Emin"] = (
+                projwfc_parameters["Emin"] + self.ctx.nscf_fermi
+            )
+            projwfc_parameters["PROJWFC"]["Emax"] = (
+                projwfc_parameters["Emax"] + self.ctx.nscf_fermi
+            )
+
+        projwfc_inputs.parameters = orm.Dict(projwfc_parameters)
+        projwfc_inputs["metadata"]["call_link_label"] = "projwfc"
+        return projwfc_inputs
+
+    def run_dos_serial(self):
+        """Run DOS calculation."""
+        dos_inputs = self._generate_dos_inputs()
+
+        if self.ctx.dry_run:
+            return dos_inputs
+
+        future_dos = self.submit(DosCalculation, **dos_inputs)
+        self.report(f"launching DosCalculation<{future_dos.pk}>")
+        return ToContext(calc_dos=future_dos)
+
+    def inspect_dos_serial(self):
+        """Verify that the DOS calculation finished successfully, then clean its remote directory."""
+        calculation = self.ctx.calc_dos
+
+        if not calculation.is_finished_ok:
+            self.report(
+                f"DosCalculation failed with exit status {calculation.exit_status}"
+            )
+            return self.exit_codes.ERROR_SUB_PROCESS_FAILED_DOS
+
+        if self.ctx.serial_clean:
+            # we no longer require the dos remote folder, so can clean it
+            if clean_calcjob_remote(calculation):
+                self.report(
+                    f"cleaned remote folder of DosCalculation<{calculation.pk}>"
+                )
+
+    def run_projwfc_serial(self):
+        """Run Projwfc calculation."""
+        projwfc_inputs = self._generate_projwfc_inputs()
+
+        if self.ctx.dry_run:
+            return projwfc_inputs
+
+        future_projwfc = self.submit(
+            ProjwfcCalculation, **projwfc_inputs
+        )
+        self.report(
+            f"launching ProjwfcCalculation<{future_projwfc.pk}>"
+        )
+        return ToContext(calc_projwfc=future_projwfc)
+
+    def inspect_projwfc_serial(self):
+        """Verify that the Projwfc calculation finished successfully, then clean its remote directory."""
+        calculation = self.ctx.calc_projwfc
+        if not calculation.is_finished_ok:
+            self.report(
+                f"ProjwfcCalculation failed with exit status {calculation.exit_status}"
+            )
+            return self.exit_codes.ERROR_SUB_PROCESS_FAILED_PROJWFC
+
+        if self.ctx.serial_clean:
+            # we no longer require the projwfc remote folder, so can clean it
+            if clean_calcjob_remote(calculation):
+                self.report(
+                    f"cleaned remote folder of ProjwfcCalculation<{calculation.pk}>"
+                )
+
+    def run_pdos_parallel(self):
+        """Run DOS and Projwfc calculations in parallel."""
+        dos_inputs = self._generate_dos_inputs()
+        projwfc_inputs = self._generate_projwfc_inputs()
+
+        if self.ctx.dry_run:
+            return dos_inputs, projwfc_inputs
+
+        future_dos = self.submit(DosCalculation, **dos_inputs)
+        self.report(f"launching DosCalculation<{future_dos.pk}>")
+        self.to_context(**{"calc_dos": future_dos})
+
+        future_projwfc = self.submit(
+            ProjwfcCalculation, **projwfc_inputs
+        )
+        self.report(
+            f"launching ProjwfcCalculation<{future_projwfc.pk}>"
+        )
+        self.to_context(**{"calc_projwfc": future_projwfc})
+
+    def inspect_pdos_parallel(self):
+        """Verify that the DOS and Projwfc calculations finished successfully."""
+        error_codes = []
+
+        calculation = self.ctx.calc_dos
+        if not calculation.is_finished_ok:
+            self.report(
+                f"DosCalculation failed with exit status {calculation.exit_status}"
+            )
+            error_codes.append(
+                self.exit_codes.ERROR_SUB_PROCESS_FAILED_DOS
+            )
+
+        calculation = self.ctx.calc_projwfc
+        if not calculation.is_finished_ok:
+            self.report(
+                f"ProjwfcCalculation failed with exit status {calculation.exit_status}"
+            )
+            error_codes.append(
+                self.exit_codes.ERROR_SUB_PROCESS_FAILED_PROJWFC
+            )
+
+        if len(error_codes) > 1:
+            return self.exit_codes.ERROR_SUB_PROCESS_FAILED_BOTH
+        if len(error_codes) == 1:
+            return error_codes[0]
+
+    def results(self):
+        """Attach the desired output nodes directly as outputs of the workchain."""
+        self.report("workchain successfully completed")
+
+        self.out_many(
+            self.exposed_outputs(
+                self.ctx.workchain_nscf,
+                MyPwBaseWorkChain,
+                namespace="nscf",
+            )
+        )
+        self.out_many(
+            self.exposed_outputs(
+                self.ctx.calc_dos, DosCalculation, namespace="dos"
+            )
+        )
+        self.out_many(
+            self.exposed_outputs(
+                self.ctx.calc_projwfc,
+                ProjwfcCalculation,
+                namespace="projwfc",
+            )
+        )
+
+    def on_terminated(self):
+        """Clean the working directories of all child calculations if `clean_workdir=True` in the inputs."""
+        super().on_terminated()
+
+        if self.inputs.clean_workdir.value is False:
+            self.report("remote folders will not be cleaned")
+            return
+
+        cleaned_calcs = clean_workchain_calcs(self.node)
+
+        if cleaned_calcs:
+            self.report(
+                f"cleaned remote folders of calculations: {' '.join(map(str, cleaned_calcs))}"
+            )

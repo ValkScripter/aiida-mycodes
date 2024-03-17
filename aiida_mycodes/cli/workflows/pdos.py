@@ -64,6 +64,12 @@ def submit_workflow(
         overrides=overrides,
     )
 
+    print(
+        # pylint: disable=no-member
+        "align_to_fermi: ",
+        builder.align_to_fermi().value,
+    )
+
     # You can change parallelization here
     parallelization = {
         "max_wallclock_seconds": max_wallclock_seconds,
