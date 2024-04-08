@@ -55,6 +55,7 @@ docs = [
 aiida-mycodes = "aiida_mycodes.cli:cmd_root"
 
 [project.entry-points."aiida.workflows"]
+"aiida_mycodes.surface_relax" = "aiida_mycodes.workflows.surface_relax:SurfaceRelaxWorkChain"
 
 [tool.flit.module]
 name = "aiida_mycodes"
