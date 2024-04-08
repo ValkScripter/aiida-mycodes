@@ -3,6 +3,8 @@
 from aiida import orm
 from aiida.engine import calcfunction
 
+__all__ = ["interpolate_structures"]
+
 
 @calcfunction
 def interpolate_structures(
@@ -33,7 +35,7 @@ def interpolate_structures(
         assert (
             ase_origin.get_atomic_numbers()
             == ase_target.get_atomic_numbers()
-        )
+        ).all()
     except Exception as exc:
         raise IndexError(
             "`origin` and `target` structures must have the same ordering of elements to interpolate"
