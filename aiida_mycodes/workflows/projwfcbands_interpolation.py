@@ -1,10 +1,12 @@
 """WorkChain to study evolution of the bandstructure and projected bandstructures from an origin to a target structure"""
 
 import pathlib
+import typing as ty
 
 from aiida_quantumespresso.utils.mapping import prepare_process_inputs
 from aiida_quantumespresso.workflows.protocols.utils import (
     ProtocolMixin,
+    recursive_merge,
 )
 from aiida_wannier90_workflows.workflows.projwfcbands import (
     ProjwfcBandsWorkChain,
@@ -17,7 +19,8 @@ from numpy import linspace
 
 from aiida import orm
 from aiida.common import AttributeDict
-from aiida.engine.processes import ToContext, WorkChain
+from aiida.common.lang import type_check
+from aiida.engine.processes import ProcessBuilder, ToContext, WorkChain
 from aiida.orm.nodes.data.base import to_aiida_type
 
 from . import protocols
@@ -30,10 +33,10 @@ def validate_inputs(  # pylint: disable=unused-argument,inconsistent-return-stat
     inputs, ctx=None
 ):
     """Validate the inputs of the entire input namespace of `ProjwfcBandsInterpolationWorkChain`."""
-    if inputs.nb_structures.value < 2:
+    if inputs["nb_structures"].value < 2:
         return "Number of interpolated structures must be >= 2."
-    ase_origin = inputs.origin_structure.get_ase()
-    ase_target = inputs.target_structure.get_ase()
+    ase_origin = inputs["origin_structure"].get_ase()
+    ase_target = inputs["target_structure"].get_ase()
 
     if len(ase_origin) != len(ase_target):
         return "`origin` and `target` structures must have the same number of atoms."
@@ -87,7 +90,7 @@ class ProjwfcBandsInterpolationWorkChain(ProtocolMixin, WorkChain):
             namespace="projwfcbands",
             exclude=("structure", "clean_workdir", "relax"),
             namespace_options={
-                "help": "Inputs for the `ProjwfcBandsWorkChain` for bandstructure and projections calculation."
+                "help": "Inputs for the `ProjwfcBandsWorkChain` for scf, bandstructure and projections calculation."
             },
         )
 
@@ -102,7 +105,7 @@ class ProjwfcBandsInterpolationWorkChain(ProtocolMixin, WorkChain):
             cls.run_all_projwfcbands,
             cls.inspect_all_projwfcbands,
             cls.results,
-            cls.on_terminated,
+            cls.on_termination,
         )
 
         spec.exit_code(
@@ -140,6 +143,99 @@ class ProjwfcBandsInterpolationWorkChain(ProtocolMixin, WorkChain):
         """Return ``pathlib.Path`` to the ``.yaml`` file that defines the protocols."""
 
         return files(protocols) / "projwfcbands_interpolation.yaml"
+
+    @classmethod
+    def get_builder_from_protocol(  # pylint: disable=arguments-differ,unused-argument
+        cls,
+        pw_code: ty.Union[str, int, orm.Code],
+        projwfc_code: ty.Union[str, int, orm.Code],
+        origin_structure: orm.StructureData,
+        target_structure: orm.StructureData,
+        *,
+        protocol: str = None,
+        overrides: dict = None,
+        options: dict = None,
+        **kwargs,
+    ) -> ProcessBuilder:
+        """Return a builder prepopulated with inputs selected according to the specified arguments.
+
+        :param pw_code: code for pw.x.
+        :type pw_code: ty.Union[str, int, orm.Code]
+        :param projwfc_code: code for projwfc.x.
+        :type projwfc_code: ty.Union[str, int, orm.Code]
+        :param origin_structure: the origin ``StructureData``.
+        :type origin_structure: orm.StructureData
+        :param target_structure: the target ``StructureData``.
+        :type target_structure: orm.StructureData
+        :param protocol: protocol to use, if not specified, the default will be used.
+        :param overrides: optional dictionary of inputs to override the defaults of the protocol.
+        :param options: A dictionary of options that will be recursively set for the ``metadata.options`` input of all
+            the ``CalcJobs`` that are nested in this work chain.
+        :return: a process builder instance with all inputs defined and ready for launch.
+        :rtype: ProcessBuilder
+        """
+        # pylint: disable=no-member,too-many-locals,too-many-function-args
+        type_check(pw_code, (str, int, orm.Code))
+        type_check(projwfc_code, (str, int, orm.Code))
+        type_check(origin_structure, orm.StructureData)
+        type_check(target_structure, orm.StructureData)
+        type_check(protocol, str, allow_none=True)
+        type_check(overrides, dict, allow_none=True)
+
+        inputs = cls.get_protocol_inputs(
+            protocol=protocol, overrides=overrides
+        )
+        inputs["projwfcbands"]["scf"]["kpoints_distance"] = (
+            to_aiida_type(
+                inputs["projwfcbands"]["scf"]["kpoints_distance"]
+            )
+        )
+
+        args = (pw_code, projwfc_code, origin_structure)
+        projwfcbands_builder = (
+            ProjwfcBandsWorkChain.get_builder_from_protocol(
+                *args,
+                protocol=protocol,
+                overrides=inputs.get("projwfcbands", None),
+            )
+        )
+        projwfcbands_builder.pop("structure", None)
+        projwfcbands_builder.pop("clean_workdir", None)
+        projwfcbands_builder.pop("relax", None)
+
+        metadata_scf = inputs.get("scf", {}).get(
+            "metadata", {"options": {}}
+        )
+        metadata_bands = inputs.get("bands", {}).get(
+            "metadata", {"options": {}}
+        )
+        metadata_projwfc = inputs.get("projwfc", {}).get(
+            "metadata", {"options": {}}
+        )
+
+        if options:
+            metadata_scf["options"] = recursive_merge(
+                metadata_scf["options"], options
+            )
+            metadata_bands["options"] = recursive_merge(
+                metadata_bands["options"], options
+            )
+            metadata_projwfc["options"] = recursive_merge(
+                metadata_projwfc["options"], options
+            )
+
+        builder = cls.get_builder()
+        builder.origin_structure = origin_structure
+        builder.target_structure = target_structure
+        builder.nb_structures = orm.Int(
+            inputs.get("nb_structures", None)
+        )
+        builder.projwfcbands = projwfcbands_builder
+        builder.projwfcbands.scf.pw.metadata = metadata_scf
+        builder.projwfcbands.bands.pw.metadata = metadata_bands
+        builder.projwfcbands.projwfc.projwfc.metadata = metadata_projwfc
+
+        return builder
 
     def setup(self):
         """Init required context variables."""
@@ -213,7 +309,7 @@ class ProjwfcBandsInterpolationWorkChain(ProtocolMixin, WorkChain):
         }
         self.out("output_parameters_scf", output_parameters_scf)
         output_parameters_bands = {
-            label: self.ctx[label].outputs.bands_parameters
+            label: self.ctx[label].outputs.band_parameters
             for label in self.ctx.labels
         }
         self.out("output_parameters_bands", output_parameters_bands)
@@ -228,10 +324,8 @@ class ProjwfcBandsInterpolationWorkChain(ProtocolMixin, WorkChain):
         }
         self.out("output_projwfc", output_projwfc)
 
-    def on_terminated(self):
+    def on_termination(self):
         """Clean the working directories of all child calculations if ``clean_workdir=True`` in the inputs."""
-
-        super().on_terminated()
 
         if self.inputs.clean_workdir.value is False:
             self.report("remote folders will not be cleaned")
