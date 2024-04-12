@@ -33,8 +33,18 @@ def validate_inputs(  # pylint: disable=unused-argument,inconsistent-return-stat
     inputs, ctx=None
 ):
     """Validate the inputs of the entire input namespace of `ProjwfcBandsInterpolationWorkChain`."""
-    if inputs["nb_structures"].value < 2:
+
+    if not ("nb_structures" in inputs) ^ ("balance_list" in inputs):
+        return (
+            "Specify either `nb_structures` or `balance_list` not both"
+        )
+
+    if "nb_structures" in inputs and inputs["nb_structures"].value < 2:
         return "Number of interpolated structures must be >= 2."
+
+    if "balance_list" in inputs and len(inputs["balance_list"]) < 2:
+        return "Number of interpolated structures must be >= 2."
+
     ase_origin = inputs["origin_structure"].get_ase()
     ase_target = inputs["target_structure"].get_ase()
 
@@ -72,7 +82,15 @@ class ProjwfcBandsInterpolationWorkChain(ProtocolMixin, WorkChain):
         spec.input(
             "nb_structures",
             valid_type=orm.Int,
-            help="The number of interpolated structures (>=2).",
+            help="The number of interpolated structures (>=2). [specify this or `balance_list`]",
+            required=False,
+        )
+        spec.input(
+            "balance_list",
+            valid_type=orm.List,
+            help="The list of balance coefficients to generate interpolated structures (length>=2).\
+                  [specify this or `nb_structures`]",
+            required=False,
         )
         spec.input(
             "clean_workdir",
@@ -136,6 +154,12 @@ class ProjwfcBandsInterpolationWorkChain(ProtocolMixin, WorkChain):
             "output_projwfc",
             dynamic=True,
             help="The output results of each ``ProjwfcBaseWorkChain`` performed.",
+        )
+        spec.output_namespace(
+            "interpolated_structures",
+            dynamic=True,
+            valid_type=orm.StructureData,
+            help="The created interpolated structures.",
         )
 
     @classmethod
@@ -227,9 +251,10 @@ class ProjwfcBandsInterpolationWorkChain(ProtocolMixin, WorkChain):
         builder = cls.get_builder()
         builder.origin_structure = origin_structure
         builder.target_structure = target_structure
-        builder.nb_structures = orm.Int(
-            inputs.get("nb_structures", None)
-        )
+        nb_structures = inputs.get("nb_structures", None)
+        builder.nb_structures = orm.Int(nb_structures)
+        balance_list = inputs.get("balance_list", None)
+        builder.balance_list = orm.List(balance_list)
         builder.projwfcbands = projwfcbands_builder
         builder.projwfcbands.scf.pw.metadata = metadata_scf
         builder.projwfcbands.bands.pw.metadata = metadata_bands
@@ -239,14 +264,18 @@ class ProjwfcBandsInterpolationWorkChain(ProtocolMixin, WorkChain):
 
     def setup(self):
         """Init required context variables."""
+        if "nb_structures" in self.inputs:
+            self.ctx.balance_list = linspace(
+                0.0, 1.0, self.inputs.nb_structures.value
+            )
+        else:
+            self.ctx.balance_list = self.inputs.balance_list.get_list()
         self.ctx.interpolated_structures_list = []
         self.ctx.labels = []
 
     def interpolate_structures(self):
         """Call interpolate_structures calculation locally"""
-        for index, balance in enumerate(
-            linspace(0.0, 1.0, self.inputs.nb_structures.value)
-        ):
+        for index, balance in enumerate(self.ctx.balance_list):
             interpolated_structure = interpolate_structures(
                 self.inputs.origin_structure,
                 self.inputs.target_structure,
@@ -259,6 +288,10 @@ class ProjwfcBandsInterpolationWorkChain(ProtocolMixin, WorkChain):
         pk_list = list(
             map(lambda s: s.pk, self.ctx.interpolated_structures_list)
         )
+        structures_dict = dict(
+            zip(self.ctx.labels, self.ctx.interpolated_structures_list)
+        )
+        self.out("interpolated_structures", structures_dict)
         self.report(f"Structures to process: {pk_list}")
 
     def run_all_projwfcbands(self):
