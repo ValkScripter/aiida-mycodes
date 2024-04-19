@@ -1,5 +1,7 @@
 """WorkChain to study charge densities of bands around Fermi level"""
 
+# pylint: disable=no-member
+
 import pathlib
 import typing as ty
 import warnings
@@ -253,7 +255,7 @@ class ChargeDensityWorkChain(ProtocolMixin, WorkChain):
         :return: a process builder instance with all inputs defined and ready for launch.
         :rtype: ProcessBuilder
         """
-        # pylint: disable=no-member,too-many-locals,too-many-function-args
+        # pylint: disable=too-many-locals,too-many-function-args
         type_check(pw_code, (str, int, orm.Code))
         type_check(pp_code, (str, int, orm.Code))
         type_check(structure, orm.StructureData)
@@ -292,20 +294,16 @@ class ChargeDensityWorkChain(ProtocolMixin, WorkChain):
         builder = cls.get_builder()
         builder.structure = structure
         builder.scf = scf_builder
-        builder.cd_2D.code = pp_code  # pylint: disable=no-member
+        builder.cd_2D.code = pp_code
         builder.cd_2D.parameters = orm.Dict(
             inputs.get("cd_2D", {}).get("parameters")
-        )  # pylint: disable=no-member
-        builder.cd_2D.metadata = (
-            metadata_cd_2D  # pylint: disable=no-member
         )
-        builder.cd_3D.code = pp_code  # pylint: disable=no-member
+        builder.cd_2D.metadata = metadata_cd_2D
+        builder.cd_3D.code = pp_code
         builder.cd_3D.parameters = orm.Dict(
             inputs.get("cd_3D", {}).get("parameters")
-        )  # pylint: disable=no-member
-        builder.cd_3D.metadata = (
-            metadata_cd_3D  # pylint: disable=no-member
         )
+        builder.cd_3D.metadata = metadata_cd_3D
 
         return builder
 
@@ -346,9 +344,7 @@ class ChargeDensityWorkChain(ProtocolMixin, WorkChain):
             self.report(
                 f"SCF PwBaseWorkChain failed with exit status {workchain.exit_status}"
             )
-            return (
-                self.exit_codes.ERROR_SUB_PROCESS_FAILED_SCF
-            )  # pylint: disable=no-member
+            return self.exit_codes.ERROR_SUB_PROCESS_FAILED_SCF
 
         self.ctx.scf_parent_folder = workchain.outputs.remote_folder
         self.ctx.homo_index = np.argmin(
@@ -415,7 +411,7 @@ class ChargeDensityWorkChain(ProtocolMixin, WorkChain):
                 f"PpCalculation for cd_2D failed with exit status {calculation.exit_status}"
             )
             error_codes.append(
-                self.exit_codes.ERROR_SUB_PROCESS_FAILED_CD_2D  # pylint: disable=no-member
+                self.exit_codes.ERROR_SUB_PROCESS_FAILED_CD_2D
             )
 
         calculation = self.ctx.calc_3D
@@ -424,13 +420,11 @@ class ChargeDensityWorkChain(ProtocolMixin, WorkChain):
                 f"PpCalculation for cd_3D failed with exit status {calculation.exit_status}"
             )
             error_codes.append(
-                self.exit_codes.ERROR_SUB_PROCESS_FAILED_CD_3D  # pylint: disable=no-member
+                self.exit_codes.ERROR_SUB_PROCESS_FAILED_CD_3D
             )
 
         if len(error_codes) > 1:
-            return (
-                self.exit_codes.ERROR_SUB_PROCESS_FAILED_CD_BOTH
-            )  # pylint: disable=no-member
+            return self.exit_codes.ERROR_SUB_PROCESS_FAILED_CD_BOTH
         if len(error_codes) == 1:
             return error_codes[0]
 
