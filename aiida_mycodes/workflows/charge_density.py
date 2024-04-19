@@ -346,7 +346,9 @@ class ChargeDensityWorkChain(ProtocolMixin, WorkChain):
             self.report(
                 f"SCF PwBaseWorkChain failed with exit status {workchain.exit_status}"
             )
-            return self.exit_codes.ERROR_SUB_PROCESS_FAILED_SCF
+            return (
+                self.exit_codes.ERROR_SUB_PROCESS_FAILED_SCF
+            )  # pylint: disable=no-member
 
         self.ctx.scf_parent_folder = workchain.outputs.remote_folder
         self.ctx.homo_index = np.argmin(
@@ -413,7 +415,7 @@ class ChargeDensityWorkChain(ProtocolMixin, WorkChain):
                 f"PpCalculation for cd_2D failed with exit status {calculation.exit_status}"
             )
             error_codes.append(
-                self.exit_codes.ERROR_SUB_PROCESS_FAILED_CD_2D
+                self.exit_codes.ERROR_SUB_PROCESS_FAILED_CD_2D  # pylint: disable=no-member
             )
 
         calculation = self.ctx.calc_3D
@@ -422,11 +424,13 @@ class ChargeDensityWorkChain(ProtocolMixin, WorkChain):
                 f"PpCalculation for cd_3D failed with exit status {calculation.exit_status}"
             )
             error_codes.append(
-                self.exit_codes.ERROR_SUB_PROCESS_FAILED_CD_3D
+                self.exit_codes.ERROR_SUB_PROCESS_FAILED_CD_3D  # pylint: disable=no-member
             )
 
         if len(error_codes) > 1:
-            return self.exit_codes.ERROR_SUB_PROCESS_FAILED_CD_BOTH
+            return (
+                self.exit_codes.ERROR_SUB_PROCESS_FAILED_CD_BOTH
+            )  # pylint: disable=no-member
         if len(error_codes) == 1:
             return error_codes[0]
 
