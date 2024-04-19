@@ -218,7 +218,6 @@ class ChargeDensityWorkChain(ProtocolMixin, WorkChain):
             message="Both charge density calculation sub processes failed",
         )
 
-        spec.expose_outputs(PwBaseWorkChain, "scf", required=False)
         spec.expose_outputs(PpCalculation, "cd_2D")
         spec.expose_outputs(PpCalculation, "cd_3D")
 
@@ -434,14 +433,6 @@ class ChargeDensityWorkChain(ProtocolMixin, WorkChain):
         """Attach the desired output nodes directly as outputs of the workchain."""
         self.report("workchain successfully completed")
 
-        if self.should_run_scf():
-            self.out_many(
-                self.exposed_outputs(
-                    self.ctx.workchain_scf,
-                    PwBaseWorkChain,
-                    namespace="scf",
-                )
-            )
         self.out_many(
             self.exposed_outputs(
                 self.ctx.calc_2D, PpCalculation, namespace="cd_2D"
