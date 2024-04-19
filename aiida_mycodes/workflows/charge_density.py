@@ -2,29 +2,30 @@
 
 import pathlib
 import typing as ty
+import warnings
 
+from aiida_quantumespresso.calculations.pp import PpCalculation
 from aiida_quantumespresso.utils.mapping import prepare_process_inputs
 from aiida_quantumespresso.workflows.protocols.utils import (
     ProtocolMixin,
     recursive_merge,
 )
-from aiida_wannier90_workflows.workflows.projwfcbands import (
-    ProjwfcBandsWorkChain,
-)
-from aiida_wannier90_workflows.workflows.projwfcbands import (
-    validate_inputs as validate_inputs_projwfcbands,
-)
+from aiida_quantumespresso.workflows.pw.base import PwBaseWorkChain
 from importlib_resources import files
-from numpy import linspace
+import numpy as np
 
 from aiida import orm
 from aiida.common import AttributeDict
 from aiida.common.lang import type_check
-from aiida.engine.processes import ProcessBuilder, ToContext, WorkChain
+from aiida.engine.processes import (
+    ProcessBuilder,
+    ToContext,
+    WorkChain,
+    if_,
+)
 from aiida.orm.nodes.data.base import to_aiida_type
 
 from . import protocols
-from ..calculations.structure.tools import interpolate_structures
 
 __all__ = ["validate_inputs", "ChargeDensityWorkChain"]
 
@@ -33,19 +34,57 @@ def validate_inputs(  # pylint: disable=unused-argument,inconsistent-return-stat
     inputs, ctx=None
 ):
     """Validate the inputs of the entire input namespace of `ChargeDensityWorkChain`."""
-    if inputs["nb_structures"].value < 2:
-        return "Number of interpolated structures must be >= 2."
-    ase_origin = inputs["origin_structure"].get_ase()
-    ase_target = inputs["target_structure"].get_ase()
+    if (
+        "scf" in inputs
+        and "parent_folder" in inputs["cd_2D"]
+        and "parent_folder" in inputs["cd_3D"]
+    ):
+        warnings.warn(
+            "Both the `scf` and `cd_XD.parent_folder` inputs were provided. The SCF calculation will "
+            "be run with the inputs provided in `scf` and the `cd_XD.parent_folder` will be ignored."
+        )
+    elif not "scf" in inputs and not (
+        "parent_folder" in inputs["cd_2D"]
+        and "parent_folder" in inputs["cd_2D"]
+    ):
+        return "Specifying either the `scf` or both `cd_XD.parent_folder` inputs is required."
+    elif (
+        not "scf" in inputs
+        and (
+            "parent_folder" in inputs["cd_2D"]
+            and "parent_folder" in inputs["cd_2D"]
+        )
+        and (
+            inputs["cd_2D"]["parent_folder"]
+            is not inputs["cd_3D"]["parent_folder"]
+        )
+    ):
+        return (
+            "The `parent_folder` of cd_2D and cd_3D must be the same."
+        )
 
-    if len(ase_origin) != len(ase_target):
-        return "`origin` and `target` structures must have the same number of atoms."
 
-    if not (
-        ase_origin.get_atomic_numbers()
-        == ase_target.get_atomic_numbers()
-    ).all():
-        return "`origin` and `target` structures must have the same ordering of elements to interpolate."
+def clean_calcjob_remote(node):
+    """Clean the remote directory of a ``CalcJobNode``."""
+    cleaned = False
+    try:
+        node.outputs.remote_folder._clean()  # pylint: disable=protected-access
+        cleaned = True
+    except (OSError, KeyError):
+        pass
+    return cleaned
+
+
+def clean_workchain_calcs(workchain):
+    """Clean all remote directories of a workchain's descendant calculations."""
+    cleaned_calcs = []
+
+    for called_descendant in workchain.called_descendants:
+        if isinstance(called_descendant, orm.CalcJobNode):
+            if clean_calcjob_remote(called_descendant):
+                cleaned_calcs.append(called_descendant.pk)
+
+    return cleaned_calcs
 
 
 class ChargeDensityWorkChain(ProtocolMixin, WorkChain):
@@ -58,6 +97,11 @@ class ChargeDensityWorkChain(ProtocolMixin, WorkChain):
         """Define the process spec."""
         super().define(spec)
 
+        spec.input(
+            "structure",
+            valid_type=orm.StructureData,
+            help="The input structure.",
+        )
         spec.input(
             "kpoint_index",
             valid_type=orm.Int,
@@ -96,73 +140,98 @@ class ChargeDensityWorkChain(ProtocolMixin, WorkChain):
                 "at the end of execution."
             ),
         )
+        spec.input(
+            "dry_run",
+            valid_type=orm.Bool,
+            serializer=to_aiida_type,
+            required=False,
+            help="Terminate workchain steps before submitting calculations (test purposes only).",
+        )
 
         spec.expose_inputs(
-            ProjwfcBandsWorkChain,
-            namespace="projwfcbands",
-            exclude=("structure", "clean_workdir", "relax"),
+            PwBaseWorkChain,
+            namespace="scf",
+            exclude=(
+                "clean_workdir",
+                "pw.structure",
+                "pw.parent_folder",
+            ),
             namespace_options={
-                "help": "Inputs for the `ProjwfcBandsWorkChain` for scf, bandstructure and projections calculation."
+                "help": "Inputs for the `PwBaseWorkChain` for scf calculation.",
+                "required": False,
             },
         )
 
-        spec.inputs["projwfcbands"].validator = (
-            validate_inputs_projwfcbands
+        spec.expose_inputs(
+            PpCalculation,
+            namespace="cd_2D",
+            namespace_options={
+                "help": "Inputs for the `PpCalculation` for the 2D charge density calculation (gnuplot)."
+            },
         )
+
+        spec.expose_inputs(
+            PpCalculation,
+            namespace="cd_3D",
+            namespace_options={
+                "help": "Inputs for the `PpCalculation` for the 3D charge density calculation (cube)."
+            },
+        )
+
         spec.inputs.validator = validate_inputs
 
         spec.outline(
             cls.setup,
-            cls.interpolate_structures,
-            cls.run_all_projwfcbands,
-            cls.inspect_all_projwfcbands,
+            if_(cls.should_run_scf)(
+                cls.run_scf,
+                cls.inspect_scf,
+            ),
+            cls.run_all_cd,
+            cls.inspect_all_cd,
             cls.results,
             cls.on_termination,
         )
 
         spec.exit_code(
             401,
-            "ERROR_SUB_PROCESS_FAILED_PROJWFCBANDS",
-            message="One or more PROJWFCBANDS sub processes failed",
+            "ERROR_SUB_PROCESS_FAILED_SCF",
+            message="SCF WorkChain sub process failed ",
         )
 
-        spec.output_namespace(
-            "output_parameters_scf",
-            valid_type=orm.Dict,
-            dynamic=True,
-            help="The output parameters of each SCF ``PwBaseWorkChain`` performed.",
+        spec.exit_code(
+            402,
+            "ERROR_SUB_PROCESS_FAILED_CD_2D",
+            message="2D charge density calculation sub process failed",
         )
-        spec.output_namespace(
-            "output_parameters_bands",
-            valid_type=orm.Dict,
-            dynamic=True,
-            help="The output parameters of each BANDS ``PwBaseWorkChain`` performed.",
+
+        spec.exit_code(
+            403,
+            "ERROR_SUB_PROCESS_FAILED_CD_3D",
+            message="3D charge density calculation sub process failed",
         )
-        spec.output_namespace(
-            "output_bandstructures",
-            valid_type=orm.BandsData,
-            dynamic=True,
-            help="The output bandstructures of each SCF ``PwBaseWorkChain`` performed.",
+
+        spec.exit_code(
+            404,
+            "ERROR_SUB_PROCESS_FAILED_CD_BOTH",
+            message="Both charge density calculation sub processes failed",
         )
-        spec.output_namespace(
-            "output_projwfc",
-            dynamic=True,
-            help="The output results of each ``ProjwfcBaseWorkChain`` performed.",
-        )
+
+        spec.expose_outputs(PwBaseWorkChain, "scf", required=False)
+        spec.expose_outputs(PpCalculation, "cd_2D")
+        spec.expose_outputs(PpCalculation, "cd_3D")
 
     @classmethod
     def get_protocol_filepath(cls) -> pathlib.Path:
         """Return ``pathlib.Path`` to the ``.yaml`` file that defines the protocols."""
 
-        return files(protocols) / "projwfcbands_interpolation.yaml"
+        return files(protocols) / "charge_density.yaml"
 
     @classmethod
     def get_builder_from_protocol(  # pylint: disable=arguments-differ,unused-argument
         cls,
         pw_code: ty.Union[str, int, orm.Code],
-        projwfc_code: ty.Union[str, int, orm.Code],
-        origin_structure: orm.StructureData,
-        target_structure: orm.StructureData,
+        pp_code: ty.Union[str, int, orm.Code],
+        structure: orm.StructureData,
         *,
         protocol: str = None,
         overrides: dict = None,
@@ -173,12 +242,10 @@ class ChargeDensityWorkChain(ProtocolMixin, WorkChain):
 
         :param pw_code: code for pw.x.
         :type pw_code: ty.Union[str, int, orm.Code]
-        :param projwfc_code: code for projwfc.x.
-        :type projwfc_code: ty.Union[str, int, orm.Code]
-        :param origin_structure: the origin ``StructureData``.
-        :type origin_structure: orm.StructureData
-        :param target_structure: the target ``StructureData``.
-        :type target_structure: orm.StructureData
+        :param pp_code: code for projwfc.x.
+        :type pp_code: ty.Union[str, int, orm.Code]
+        :param structure: the ``StructureData`` instance to use.
+        :type structure: orm.StructureData
         :param protocol: protocol to use, if not specified, the default will be used.
         :param overrides: optional dictionary of inputs to override the defaults of the protocol.
         :param options: A dictionary of options that will be recursively set for the ``metadata.options`` input of all
@@ -188,170 +255,215 @@ class ChargeDensityWorkChain(ProtocolMixin, WorkChain):
         """
         # pylint: disable=no-member,too-many-locals,too-many-function-args
         type_check(pw_code, (str, int, orm.Code))
-        type_check(projwfc_code, (str, int, orm.Code))
-        type_check(origin_structure, orm.StructureData)
-        type_check(target_structure, orm.StructureData)
+        type_check(pp_code, (str, int, orm.Code))
+        type_check(structure, orm.StructureData)
         type_check(protocol, str, allow_none=True)
         type_check(overrides, dict, allow_none=True)
 
         inputs = cls.get_protocol_inputs(
             protocol=protocol, overrides=overrides
         )
-        inputs["projwfcbands"]["scf"]["kpoints_distance"] = (
-            to_aiida_type(
-                inputs["projwfcbands"]["scf"]["kpoints_distance"]
-            )
-        )
 
-        args = (pw_code, projwfc_code, origin_structure)
-        projwfcbands_builder = (
-            ProjwfcBandsWorkChain.get_builder_from_protocol(
-                *args,
-                protocol=protocol,
-                overrides=inputs.get("projwfcbands", None),
-            )
+        args = (pw_code, structure, protocol)
+        scf_builder = PwBaseWorkChain.get_builder_from_protocol(
+            *args,
+            overrides=inputs.get("scf", None),
+            options=options,
+            **kwargs,
         )
-        projwfcbands_builder.pop("structure", None)
-        projwfcbands_builder.pop("clean_workdir", None)
-        projwfcbands_builder.pop("relax", None)
+        scf_builder["pw"].pop("structure", None)
+        scf_builder.pop("clean_workdir", None)
 
-        metadata_scf = inputs.get("scf", {}).get(
+        metadata_cd_2D = inputs.get("cd_2D", {}).get(
             "metadata", {"options": {}}
         )
-        metadata_bands = inputs.get("bands", {}).get(
-            "metadata", {"options": {}}
-        )
-        metadata_projwfc = inputs.get("projwfc", {}).get(
+        metadata_cd_3D = inputs.get("cd_3D", {}).get(
             "metadata", {"options": {}}
         )
 
         if options:
-            metadata_scf["options"] = recursive_merge(
-                metadata_scf["options"], options
+            metadata_cd_2D["options"] = recursive_merge(
+                metadata_cd_2D["options"], options
             )
-            metadata_bands["options"] = recursive_merge(
-                metadata_bands["options"], options
-            )
-            metadata_projwfc["options"] = recursive_merge(
-                metadata_projwfc["options"], options
+            metadata_cd_3D["options"] = recursive_merge(
+                metadata_cd_3D["options"], options
             )
 
         builder = cls.get_builder()
-        builder.origin_structure = origin_structure
-        builder.target_structure = target_structure
-        builder.nb_structures = orm.Int(
-            inputs.get("nb_structures", None)
+        builder.structure = structure
+        builder.scf = scf_builder
+        builder.cd_2D.code = pp_code  # pylint: disable=no-member
+        builder.cd_2D.parameters = orm.Dict(
+            inputs.get("cd_2D", {}).get("parameters")
+        )  # pylint: disable=no-member
+        builder.cd_2D.metadata = (
+            metadata_cd_2D  # pylint: disable=no-member
         )
-        builder.projwfcbands = projwfcbands_builder
-        builder.projwfcbands.scf.pw.metadata = metadata_scf
-        builder.projwfcbands.bands.pw.metadata = metadata_bands
-        builder.projwfcbands.projwfc.projwfc.metadata = metadata_projwfc
+        builder.cd_3D.code = pp_code  # pylint: disable=no-member
+        builder.cd_3D.parameters = orm.Dict(
+            inputs.get("cd_3D", {}).get("parameters")
+        )  # pylint: disable=no-member
+        builder.cd_3D.metadata = (
+            metadata_cd_3D  # pylint: disable=no-member
+        )
 
         return builder
 
     def setup(self):
         """Init required context variables."""
-        self.ctx.interpolated_structures_list = []
-        self.ctx.labels = []
-
-    def interpolate_structures(self):
-        """Call interpolate_structures calculation locally"""
-        for index, balance in enumerate(
-            linspace(0.0, 1.0, self.inputs.nb_structures.value)
-        ):
-            interpolated_structure = interpolate_structures(
-                self.inputs.origin_structure,
-                self.inputs.target_structure,
-                orm.Float(balance),
-            )
-            self.ctx.interpolated_structures_list.append(
-                interpolated_structure
-            )
-            self.ctx.labels.append(f"structure_{index}")
-        pk_list = list(
-            map(lambda s: s.pk, self.ctx.interpolated_structures_list)
+        self.ctx.dry_run = (
+            "dry_run" in self.inputs and self.inputs.dry_run.value
         )
-        self.report(f"Structures to process: {pk_list}")
 
-    def run_all_projwfcbands(self):
-        """Call all ProjwfcBandsWorkChain's for each interpolated structure"""
-        futures = {}
-        for index, structure in enumerate(
-            self.ctx.interpolated_structures_list
-        ):
-            inputs = AttributeDict(
-                self.exposed_inputs(
-                    ProjwfcBandsWorkChain, namespace="projwfcbands"
-                )
-            )
-            inputs.structure = structure
-            inputs.metadata.call_link_label = f"PB{index}"
-            inputs = prepare_process_inputs(
-                ProjwfcBandsWorkChain, inputs
-            )
-            future = self.submit(ProjwfcBandsWorkChain, **inputs)
-            label = self.ctx.labels[index]
-            futures[label] = future
-            self.report(
-                f"launched ProjwfcBandsWorkChain for {label}<{future.pk}>"
-            )
-        return ToContext(**futures)
+    def should_run_scf(self):
+        """Return whether the work chain should run an SCF calculation."""
+        return "scf" in self.inputs
+
+    def run_scf(self):
+        """Run an SCF calculation, to generate the wavefunction."""
+        inputs = AttributeDict(
+            self.exposed_inputs(PwBaseWorkChain, "scf")
+        )
+        inputs.pw.structure = self.inputs.structure
+
+        inputs.metadata.call_link_label = "scf"
+        inputs = prepare_process_inputs(PwBaseWorkChain, inputs)
+
+        if self.ctx.dry_run:
+            return inputs
+
+        future = self.submit(PwBaseWorkChain, **inputs)
+
+        self.report(f"launching SCF PwBaseWorkChain<{future.pk}>")
+
+        return ToContext(workchain_scf=future)
 
     # pylint: disable=inconsistent-return-statements
-    def inspect_all_projwfcbands(self):
-        """Check that all ProjwfcBandsWorkChain's finished successfully"""
-        work_chains = [self.ctx[label] for label in self.ctx.labels]
-        failed_work_chains = []
-        for work_chain, label in zip(work_chains, self.ctx.labels):
-            if not work_chain.is_finished_ok:
-                failed_work_chains.append(work_chain)
-                self.report(
-                    f"ProjwfcBandsWorkChain for ({label}) failed with exit status {work_chain.exit_status}"
-                )
-        if len(failed_work_chains) > 0:
-            return self.exit_codes.ERROR_SUB_PROCESS_FAILED_PROJWFCBANDS
+    def inspect_scf(self):
+        """Verify that the SCF calculation finished successfully."""
+        workchain = self.ctx.workchain_scf
+        if not workchain.is_finished_ok:
+            self.report(
+                f"SCF PwBaseWorkChain failed with exit status {workchain.exit_status}"
+            )
+            return self.exit_codes.ERROR_SUB_PROCESS_FAILED_SCF
+
+        self.ctx.scf_parent_folder = workchain.outputs.remote_folder
+        self.ctx.homo_index = np.argmin(
+            workchain.outputs.output_band.get_array("occupations")[
+                self.inputs.kpoint_index - 1
+            ]
+            > 0.05
+        )  # in 1-numeration
+
+    def run_all_cd(self):
+        """Call all PpCalculation's for cd_2D and cd_3D"""
+        futures = {}
+        cd_2D_inputs = AttributeDict(
+            self.exposed_inputs(PpCalculation, namespace="cd_2D")
+        )
+        cd_3D_inputs = AttributeDict(
+            self.exposed_inputs(PpCalculation, namespace="cd_3D")
+        )
+        if self.should_run_scf():
+            cd_2D_inputs.parent_folder = self.ctx.scf_parent_folder
+            cd_3D_inputs.parent_folder = self.ctx.scf_parent_folder
+
+        cd_2D_parameters = self.inputs.cd_2D.parameters.get_dict()
+        cd_3D_parameters = self.inputs.cd_3D.parameters.get_dict()
+
+        cd_2D_parameters["INPUTPP"]["kband(1)"] = (
+            self.ctx.homo_index + self.inputs.first_band_index
+        )
+        cd_2D_parameters["INPUTPP"]["kband(2)"] = (
+            self.ctx.homo_index + self.inputs.last_band_index
+        )
+        cd_3D_parameters["INPUTPP"]["kband(1)"] = (
+            self.ctx.homo_index + self.inputs.first_band_index
+        )
+        cd_3D_parameters["INPUTPP"]["kband(2)"] = (
+            self.ctx.homo_index + self.inputs.last_band_index
+        )
+
+        cd_2D_inputs.parameters = orm.Dict(cd_2D_parameters)
+        cd_3D_inputs.parameters = orm.Dict(cd_3D_parameters)
+        cd_2D_inputs["metadata"]["call_link_label"] = "cd_2D"
+        cd_3D_inputs["metadata"]["call_link_label"] = "cd_3D"
+
+        if self.ctx.dry_run:
+            return cd_2D_inputs, cd_3D_inputs
+
+        future_2D = self.submit(PpCalculation, **cd_2D_inputs)
+        self.report(f"launching cd_2D PpCalculation<{future_2D.pk}>")
+        futures["calc_2D"] = future_2D
+
+        future_3D = self.submit(PpCalculation, **cd_3D_inputs)
+        self.report(f"launching cd_3D PpCalculation<{future_3D.pk}>")
+        futures["calc_3D"] = future_3D
+
+        return ToContext(**futures)
+
+    def inspect_all_cd(self):
+        """Check that all PpCalculation's finished successfully"""
+        error_codes = []
+
+        calculation = self.ctx.calc_2D
+        if not calculation.is_finished_ok:
+            self.report(
+                f"PpCalculation for cd_2D failed with exit status {calculation.exit_status}"
+            )
+            error_codes.append(
+                self.exit_codes.ERROR_SUB_PROCESS_FAILED_CD_2D
+            )
+
+        calculation = self.ctx.calc_3D
+        if not calculation.is_finished_ok:
+            self.report(
+                f"PpCalculation for cd_3D failed with exit status {calculation.exit_status}"
+            )
+            error_codes.append(
+                self.exit_codes.ERROR_SUB_PROCESS_FAILED_CD_3D
+            )
+
+        if len(error_codes) > 1:
+            return self.exit_codes.ERROR_SUB_PROCESS_FAILED_CD_BOTH
+        if len(error_codes) == 1:
+            return error_codes[0]
 
     # pylint: enable=inconsistent-return-statements
 
     def results(self):
-        """Compile all output data and send to outputs."""
-        output_parameters_scf = {
-            label: self.ctx[label].outputs.scf_parameters
-            for label in self.ctx.labels
-        }
-        self.out("output_parameters_scf", output_parameters_scf)
-        output_parameters_bands = {
-            label: self.ctx[label].outputs.band_parameters
-            for label in self.ctx.labels
-        }
-        self.out("output_parameters_bands", output_parameters_bands)
-        output_bandstructures = {
-            label: self.ctx[label].outputs.band_structure
-            for label in self.ctx.labels
-        }
-        self.out("output_bandstructures", output_bandstructures)
-        output_projwfc = {
-            label: self.ctx[label].outputs.projwfc
-            for label in self.ctx.labels
-        }
-        self.out("output_projwfc", output_projwfc)
+        """Attach the desired output nodes directly as outputs of the workchain."""
+        self.report("workchain successfully completed")
+
+        if self.should_run_scf():
+            self.out_many(
+                self.exposed_outputs(
+                    self.ctx.workchain_scf,
+                    PwBaseWorkChain,
+                    namespace="scf",
+                )
+            )
+        self.out_many(
+            self.exposed_outputs(
+                self.ctx.calc_2D, PpCalculation, namespace="cd_2D"
+            )
+        )
+        self.out_many(
+            self.exposed_outputs(
+                self.ctx.calc_3D, PpCalculation, namespace="cd_3D"
+            )
+        )
 
     def on_termination(self):
         """Clean the working directories of all child calculations if ``clean_workdir=True`` in the inputs."""
+        super().on_terminated()
 
         if self.inputs.clean_workdir.value is False:
             self.report("remote folders will not be cleaned")
             return
 
-        cleaned_calcs = []
-
-        for called_descendant in self.node.called_descendants:
-            if isinstance(called_descendant, orm.CalcJobNode):
-                try:
-                    called_descendant.outputs.remote_folder._clean()  # pylint: disable=protected-access
-                    cleaned_calcs.append(called_descendant.pk)
-                except (OSError, KeyError):
-                    pass
+        cleaned_calcs = clean_workchain_calcs(self.node)
 
         if cleaned_calcs:
             self.report(

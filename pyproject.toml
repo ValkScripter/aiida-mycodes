@@ -55,7 +55,7 @@ docs = [
 aiida-mycodes = "aiida_mycodes.cli:cmd_root"
 
 [project.entry-points."aiida.workflows"]
-"mycodes.surface_relax" = "aiida_mycodes.workflows.surface_relax:SurfaceRelaxWorkChain"
+"mycodes.charge_density" = "aiida_mycodes.workflows.charge_density:ChargeDensityWorkChain"
 "mycodes.projwfcbands_interpolation" = "aiida_mycodes.workflows.projwfcbands_interpolation:ProjwfcBandsInterpolationWorkChain"
 
 [project.entry-points."aiida.calculations"]
