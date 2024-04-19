@@ -45,7 +45,10 @@ extensions = [
 
 intersphinx_mapping = {
     "python": ("https://docs.python.org/3", None),
-    "aiida": ("https://aiida.readthedocs.io/projects/aiida-core/en/latest", None),
+    "aiida": (
+        "https://aiida.readthedocs.io/projects/aiida-core/en/latest",
+        None,
+    ),
 }
 
 # Add any paths that contain templates here, relative to this directory.
@@ -73,7 +76,9 @@ copyright_year_string = (
     else f"{copyright_first_year}-{current_year}"
 )
 # pylint: disable=redefined-builtin
-copyright = f"{copyright_year_string}, {copyright_owners}. All rights reserved"
+copyright = (
+    f"{copyright_year_string}, {copyright_owners}. All rights reserved"
+)
 
 # The version info for the project you're documenting, acts as replacement for
 # |version| and |release|, also used in various other places throughout the
@@ -198,7 +203,9 @@ def run_apidoc(_):
     """
     source_dir = os.path.abspath(os.path.dirname(__file__))
     apidoc_dir = os.path.join(source_dir, "apidoc")
-    package_dir = os.path.join(source_dir, os.pardir, os.pardir, "aiida_mycodes")
+    package_dir = os.path.join(
+        source_dir, os.pardir, os.pardir, "aiida_mycodes"
+    )
 
     # In #1139, they suggest the route below, but this ended up
     # calling sphinx-build, not sphinx-apidoc
@@ -208,9 +215,13 @@ def run_apidoc(_):
     import subprocess
 
     cmd_path = "sphinx-apidoc"
-    if hasattr(sys, "real_prefix"):  # Check to see if we are in a virtualenv
+    if hasattr(
+        sys, "real_prefix"
+    ):  # Check to see if we are in a virtualenv
         # If we are, assemble the path manually
-        cmd_path = os.path.abspath(os.path.join(sys.prefix, "bin", "sphinx-apidoc"))
+        cmd_path = os.path.abspath(
+            os.path.join(sys.prefix, "bin", "sphinx-apidoc")
+        )
 
     options = [
         "-o",
