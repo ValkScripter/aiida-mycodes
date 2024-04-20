@@ -38,5 +38,14 @@ If you have already set up your own aiida_mycodes code using
 Available calculations
 ++++++++++++++++++++++
 
-.. aiida-calcjob:: DiffCalculation
-    :module: aiida_mycodes.calculations
+.. aiida-calcfunction:: interpolate_structures
+    :module: aiida_mycodes.calculations.structure.tools
+
+Available workchains
+++++++++++++++++++++++
+
+.. aiida-workchain:: ChargeDensityWorkChain
+    :module: aiida_mycodes.workflows.charge_density
+
+.. aiida-workchain:: ProjwfcBandsInterpolationWorkChain
+    :module: aiida_mycodes.workflows.projwfcbands_interpolation
