@@ -4,7 +4,6 @@
 
 import pathlib
 import typing as ty
-import warnings
 
 from aiida_quantumespresso.calculations.pp import PpCalculation
 from aiida_quantumespresso.utils.mapping import prepare_process_inputs
@@ -29,6 +28,9 @@ from aiida.orm.nodes.data.base import to_aiida_type
 
 from . import protocols
 
+# import warnings
+
+
 __all__ = ["validate_inputs", "ChargeDensityWorkChain"]
 
 
@@ -36,34 +38,19 @@ def validate_inputs(  # pylint: disable=unused-argument,inconsistent-return-stat
     inputs, ctx=None
 ):
     """Validate the inputs of the entire input namespace of `ChargeDensityWorkChain`."""
-    if (
-        "scf" in inputs
-        and "parent_folder" in inputs["cd_2D"]
-        and "parent_folder" in inputs["cd_3D"]
-    ):
-        warnings.warn(
-            "Both the `scf` and `cd_XD.parent_folder` inputs were provided. The SCF calculation will "
-            "be run with the inputs provided in `scf` and the `cd_XD.parent_folder` will be ignored."
-        )
-    elif not "scf" in inputs and not (
-        "parent_folder" in inputs["cd_2D"]
-        and "parent_folder" in inputs["cd_2D"]
-    ):
-        return "Specifying either the `scf` or both `cd_XD.parent_folder` inputs is required."
-    elif (
-        not "scf" in inputs
-        and (
-            "parent_folder" in inputs["cd_2D"]
-            and "parent_folder" in inputs["cd_2D"]
-        )
-        and (
-            inputs["cd_2D"]["parent_folder"]
-            is not inputs["cd_3D"]["parent_folder"]
-        )
-    ):
+    if not ("scf" in inputs) ^ ("remote_scf_folder" in inputs):
         return (
-            "The `parent_folder` of cd_2D and cd_3D must be the same."
+            "Specify either the `scf` or the `remote_scf_folder` input."
         )
+
+    if "scf" in inputs and not "structure" in inputs:
+        return "Structure input is required if SCF calculation is provided."
+
+
+def validate_pp(  # pylint: disable=unused-argument,inconsistent-return-statements
+    inputs, ctx=None
+):
+    """Validate the inputs of the cd_2D and cd_3D namespaces of `ChargeDensityWorkChain`."""
 
 
 def clean_calcjob_remote(node):
@@ -103,6 +90,7 @@ class ChargeDensityWorkChain(ProtocolMixin, WorkChain):
             "structure",
             valid_type=orm.StructureData,
             help="The input structure.",
+            required=False,
         )
         spec.input(
             "kpoint_index",
@@ -150,6 +138,14 @@ class ChargeDensityWorkChain(ProtocolMixin, WorkChain):
             help="Terminate workchain steps before submitting calculations (test purposes only).",
         )
 
+        spec.input(
+            "remote_scf_folder",
+            valid_type=orm.RemoteData,
+            serializer=to_aiida_type,
+            required=False,
+            help="Specify this to retrieve results if no SCF calculation is to be done.",
+        )
+
         spec.expose_inputs(
             PwBaseWorkChain,
             namespace="scf",
@@ -161,26 +157,39 @@ class ChargeDensityWorkChain(ProtocolMixin, WorkChain):
             namespace_options={
                 "help": "Inputs for the `PwBaseWorkChain` for scf calculation.",
                 "required": False,
+                "populate_defaults": False,
             },
         )
 
         spec.expose_inputs(
             PpCalculation,
             namespace="cd_2D",
+            exclude=(
+                "clean_workdir",
+                "parent_folder",
+            ),
             namespace_options={
-                "help": "Inputs for the `PpCalculation` for the 2D charge density calculation (gnuplot)."
+                "help": "Inputs for the `PpCalculation` for the 2D charge density calculation (gnuplot).",
+                "populate_defaults": False,
             },
         )
 
         spec.expose_inputs(
             PpCalculation,
             namespace="cd_3D",
+            exclude=(
+                "clean_workdir",
+                "parent_folder",
+            ),
             namespace_options={
-                "help": "Inputs for the `PpCalculation` for the 3D charge density calculation (cube)."
+                "help": "Inputs for the `PpCalculation` for the 3D charge density calculation (cube).",
+                "populate_defaults": False,
             },
         )
 
         spec.inputs.validator = validate_inputs
+        spec.inputs["cd_2D"].validator = validate_pp
+        spec.inputs["cd_3D"].validator = validate_pp
 
         spec.outline(
             cls.setup,
@@ -291,17 +300,28 @@ class ChargeDensityWorkChain(ProtocolMixin, WorkChain):
             )
 
         builder = cls.get_builder()
+        builder.clean_workdir = orm.Bool(
+            inputs.get("clean_workdir", True)
+        )
+        builder.dry_run = orm.Bool(inputs.get("dry_run", False))
+        builder.kpoint_index = orm.Int(inputs.get("kpoint_index", 1))
+        builder.first_band_index = orm.Int(
+            inputs.get("first_band_index", 0)
+        )
+        builder.last_band_index = orm.Int(
+            inputs.get("last_band_index", 1)
+        )
         builder.structure = structure
         builder.scf = scf_builder
         builder.cd_2D.code = pp_code
-        builder.cd_2D.parameters = orm.Dict(
-            inputs.get("cd_2D", {}).get("parameters")
-        )
+        parameters = inputs.get("cd_2D", {}).get("parameters")
+        parameters["INPUTPP"]["kpoint"] = builder.kpoint_index
+        builder.cd_2D.parameters = orm.Dict(parameters)
         builder.cd_2D.metadata = metadata_cd_2D
         builder.cd_3D.code = pp_code
-        builder.cd_3D.parameters = orm.Dict(
-            inputs.get("cd_3D", {}).get("parameters")
-        )
+        parameters = inputs.get("cd_3D", {}).get("parameters")
+        parameters["INPUTPP"]["kpoint"] = builder.kpoint_index
+        builder.cd_3D.parameters = orm.Dict(parameters)
         builder.cd_3D.metadata = metadata_cd_3D
 
         return builder
@@ -311,6 +331,8 @@ class ChargeDensityWorkChain(ProtocolMixin, WorkChain):
         self.ctx.dry_run = (
             "dry_run" in self.inputs and self.inputs.dry_run.value
         )
+        if "remote_scf_folder" in self.inputs:
+            self.ctx.scf_parent_folder = self.inputs.remote_scf_folder
 
     def should_run_scf(self):
         """Return whether the work chain should run an SCF calculation."""
@@ -348,7 +370,7 @@ class ChargeDensityWorkChain(ProtocolMixin, WorkChain):
         self.ctx.scf_parent_folder = workchain.outputs.remote_folder
         self.ctx.homo_index = np.argmin(
             workchain.outputs.output_band.get_array("occupations")[
-                self.inputs.kpoint_index - 1
+                self.inputs.kpoint_index.value - 1
             ]
             > 0.05
         )  # in 1-numeration
@@ -368,6 +390,14 @@ class ChargeDensityWorkChain(ProtocolMixin, WorkChain):
 
         cd_2D_parameters = self.inputs.cd_2D.parameters.get_dict()
         cd_3D_parameters = self.inputs.cd_3D.parameters.get_dict()
+
+        occupations = cd_2D_inputs.parent_folder.creator.outputs.output_band.get_array(
+            "occupations"
+        )
+
+        self.ctx.homo_index = np.argmin(
+            occupations[self.inputs.kpoint_index.value - 1] > 0.05
+        )  # in 1-numeration
 
         cd_2D_parameters["INPUTPP"]["kband(1)"] = (
             self.ctx.homo_index + self.inputs.first_band_index
