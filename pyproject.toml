@@ -57,6 +57,7 @@ aiida-mycodes = "aiida_mycodes.cli:cmd_root"
 [project.entry-points."aiida.workflows"]
 "mycodes.charge_density" = "aiida_mycodes.workflows.charge_density:ChargeDensityWorkChain"
 "mycodes.projwfcbands_interpolation" = "aiida_mycodes.workflows.projwfcbands_interpolation:ProjwfcBandsInterpolationWorkChain"
+"mycodes.xdos" = "aiida_mycodes.workflows.xdos:XdosWorkChain"
 
 [project.entry-points."aiida.calculations"]
 "mycodes.structure.interpolate" = "aiida_mycodes.calculations.structure.tools:interpolate_structures"
