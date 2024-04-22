@@ -33,9 +33,46 @@ def validate_inputs(  # pylint: disable=unused-argument,inconsistent-return-stat
     """Validate the inputs of the entire input namespace of `XdosWorkChain`."""
 
     # Call parent validator
-    result = parent_validate_inputs(inputs)
+    result = parent_validate_inputs(inputs, ctx)
     if result is not None:
         return result
+
+    assert len(inputs["xmins"]) == len(
+        inputs["xmaxs"]
+    ), "Length of xmins and xmaxs should be equal"
+    assert len(inputs["ymins"]) == len(
+        inputs["ymaxs"]
+    ), "Length of ymins and ymaxs should be equal"
+    assert len(inputs["zmins"]) == len(
+        inputs["zmaxs"]
+    ), "Length of zmins and zmaxs should be equal"
+    assert len(inputs["xmins"]) == len(
+        inputs["ymins"]
+    ), "Length of xmins and ymins should be equal"
+    assert len(inputs["xmins"]) == len(
+        inputs["zmins"]
+    ), "Length of xmins and zmins should be equal"
+    assert (
+        len(inputs["xmins"]) > 0
+    ), "At least one box should be defined"
+    assert all(
+        isinstance(x, (int, float)) for x in inputs["xmins"]
+    ), "xmins should be a list of integers or floats"
+    assert all(
+        isinstance(x, (int, float)) for x in inputs["xmaxs"]
+    ), "xmaxs should be a list of integers or floats"
+    assert all(
+        isinstance(x, (int, float)) for x in inputs["ymins"]
+    ), "ymins should be a list of integers or floats"
+    assert all(
+        isinstance(x, (int, float)) for x in inputs["ymaxs"]
+    ), "ymaxs should be a list of integers or floats"
+    assert all(
+        isinstance(x, (int, float)) for x in inputs["zmins"]
+    ), "zmins should be a list of integers or floats"
+    assert all(
+        isinstance(x, (int, float)) for x in inputs["zmaxs"]
+    ), "zmaxs should be a list of integers or floats"
 
 
 def validate_ldos(value, _):
@@ -46,13 +83,20 @@ def validate_ldos(value, _):
     - projwfc.x only: ngauss | degauss | pawproj | n_proj_boxes | irmin(3,n_proj_boxes) | irmax(3,n_proj_boxes)
 
     """
+    parameter_schema = get_parameter_schema()
+    parameter_schema["properties"]["tdosinboxes"] = {
+        "type": "boolean",
+        "description": "Whether to calculate the total DOS in the boxes.",
+    }
     jsonschema.validate(
-        value["parameters"].get_dict()["PROJWFC"],
-        get_parameter_schema(),
+        value["parameters"].get_dict()["PROJWFC"], parameter_schema
     )
     assert (
         "tdosinboxes" in value["parameters"].get_dict()["PROJWFC"]
-    ), "Missing 'tdosinboxes' key in parameters"
+    ), "Missing 'tdosinboxes' key in LDoS parameters"
+    assert (
+        value["parameters"].get_dict()["PROJWFC"]["tdosinboxes"] is True
+    ), "LDoS calculation requires 'tdosinboxes' to be True"
 
 
 class XdosWorkChain(PdosWorkChain):
@@ -86,6 +130,48 @@ class XdosWorkChain(PdosWorkChain):
                 ),
                 "validator": validate_ldos,
             },
+        )
+
+        spec.input(
+            "xmins",
+            valid_type=orm.List,
+            required=True,
+            help="List of xmin coordinates (relative to lattice parameters) for the LDOS calculation.",
+        )
+
+        spec.input(
+            "xmaxs",
+            valid_type=orm.List,
+            required=True,
+            help="List of xmax coordinates (relative to lattice parameters) for the LDOS calculation.",
+        )
+
+        spec.input(
+            "ymins",
+            valid_type=orm.List,
+            required=True,
+            help="List of ymin coordinates (relative to lattice parameters) for the LDOS calculation.",
+        )
+
+        spec.input(
+            "ymaxs",
+            valid_type=orm.List,
+            required=True,
+            help="List of ymax coordinates (relative to lattice parameters) for the LDOS calculation.",
+        )
+
+        spec.input(
+            "zmins",
+            valid_type=orm.List,
+            required=True,
+            help="List of zmin coordinates (relative to lattice parameters) for the LDOS calculation.",
+        )
+
+        spec.input(
+            "zmaxs",
+            valid_type=orm.List,
+            required=True,
+            help="List of zmax coordinates (relative to lattice parameters) for the LDOS calculation.",
         )
 
         spec.inputs.validator = validate_inputs
@@ -252,6 +338,12 @@ class XdosWorkChain(PdosWorkChain):
             inputs.get("ldos", {}).get("parameters")
         )
         builder.ldos.metadata = metadata_ldos
+        builder.xmins = orm.List(inputs["xmins"])
+        builder.xmaxs = orm.List(inputs["xmaxs"])
+        builder.ymins = orm.List(inputs["ymins"])
+        builder.ymaxs = orm.List(inputs["ymaxs"])
+        builder.zmins = orm.List(inputs["zmins"])
+        builder.zmaxs = orm.List(inputs["zmaxs"])
 
         return builder
 
@@ -269,6 +361,43 @@ class XdosWorkChain(PdosWorkChain):
             )
             ldos_parameters["PROJWFC"]["Emax"] = (
                 ldos_parameters.pop("Emax", None) + self.ctx.nscf_fermi
+            )
+
+        ldos_parameters["PROJWFC"]["n_proj_boxes"] = len(
+            self.inputs.xmins
+        )
+
+        nx, ny, nz = (
+            self.ctx.workchain_nscf.outputs.output_parameters.dict.fft_grid
+        )  # Retrieve the FFT grid from the NSCF calculation
+
+        for i, (xmin, xmax, ymin, ymax, zmin, zmax) in enumerate(
+            zip(
+                self.inputs.xmins,
+                self.inputs.xmaxs,
+                self.inputs.ymins,
+                self.inputs.ymaxs,
+                self.inputs.zmins,
+                self.inputs.zmaxs,
+            )
+        ):
+            ldos_parameters["PROJWFC"][f"irmin(1,{i+1})"] = round(
+                xmin * nx
+            )
+            ldos_parameters["PROJWFC"][f"irmax(1,{i+1})"] = round(
+                xmax * nx
+            )
+            ldos_parameters["PROJWFC"][f"irmin(2,{i+1})"] = round(
+                ymin * ny
+            )
+            ldos_parameters["PROJWFC"][f"irmax(2,{i+1})"] = round(
+                ymax * ny
+            )
+            ldos_parameters["PROJWFC"][f"irmin(3,{i+1})"] = round(
+                zmin * nz
+            )
+            ldos_parameters["PROJWFC"][f"irmax(3,{i+1})"] = round(
+                zmax * nz
             )
 
         ldos_inputs.parameters = orm.Dict(ldos_parameters)
