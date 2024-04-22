@@ -99,6 +99,7 @@ class MyProjwfcBandsWorkChain(ProtocolMixin, WorkChain):
             namespace_options={
                 "help": "Inputs for the `PwBaseWorkChain` for the SCF calculation.",
                 "required": False,
+                "populate_defaults": False,
             },
         )
         spec.expose_inputs(
