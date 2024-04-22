@@ -10,7 +10,6 @@ from aiida_quantumespresso.calculations.functions.seekpath_structure_analysis im
 from aiida_quantumespresso.utils.mapping import prepare_process_inputs
 from aiida_quantumespresso.workflows.protocols.utils import (
     ProtocolMixin,
-    recursive_merge,
 )
 from aiida_quantumespresso.workflows.pw.bands import PwBandsWorkChain
 from aiida_quantumespresso.workflows.pw.base import PwBaseWorkChain
@@ -300,7 +299,7 @@ class MyProjwfcBandsWorkChain(ProtocolMixin, WorkChain):
         )
         projwfc = ProjwfcBaseWorkChain.get_builder_from_protocol(
             projwfc_code,
-            structure,
+            protocol=protocol,
             overrides=inputs.get("projwfc", None),
             **kwargs,
         )
@@ -312,15 +311,6 @@ class MyProjwfcBandsWorkChain(ProtocolMixin, WorkChain):
         bands.pop("kpoints_distance", None)
         bands.pop("kpoints_force_parity", None)
         projwfc.pop("clean_workdir", None)
-
-        metadata_projwfc = inputs.get("projwfc", {}).get(
-            "metadata", {"options": {}}
-        )
-        if options:
-            metadata_projwfc["options"] = recursive_merge(
-                metadata_projwfc["options"], options
-            )
-        projwfc.metadata = metadata_projwfc
 
         builder = cls.get_builder()
         builder.structure = structure
