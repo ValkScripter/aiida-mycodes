@@ -9,6 +9,7 @@ from aiida_quantumespresso.utils.mapping import prepare_process_inputs
 from aiida_quantumespresso.workflows.protocols.utils import (
     ProtocolMixin,
 )
+from aiida_quantumespresso.workflows.pw.bands import PwBandsWorkChain
 from aiida_quantumespresso.workflows.pw.base import PwBaseWorkChain
 from importlib_resources import files
 
@@ -32,6 +33,76 @@ def validate_inputs(  # pylint: disable=unused-argument,inconsistent-return-stat
     inputs, ctx=None
 ):
     """Validate the inputs."""
+
+
+def validate_charge_density_inputs(  # pylint: disable=unused-argument,inconsistent-return-statements
+    inputs, ctx=None
+):
+    """Validate the inputs of ChargeDensityWorkChain."""
+
+
+def validate_projwfcbands_inputs(  # pylint: disable=unused-argument,inconsistent-return-statements
+    inputs, ctx=None
+):
+    """Validate the inputs of MyProjwfcBandsWorkChain."""
+    if "nbands_factor" in inputs and "nbnd" in inputs["bands"]["pw"][
+        "parameters"
+    ].base.attributes.get("SYSTEM", {}):
+        return (
+            PwBandsWorkChain.exit_codes.ERROR_INVALID_INPUT_NUMBER_OF_BANDS.message
+        )
+
+    # Cannot specify both `bands_kpoints` and `bands_kpoints_distance`
+    if all(
+        key in inputs
+        for key in ["bands_kpoints", "bands_kpoints_distance"]
+    ):
+        return (
+            PwBandsWorkChain.exit_codes.ERROR_INVALID_INPUT_KPOINTS.message
+        )
+
+
+def validate_xdos_inputs(  # pylint: disable=unused-argument,inconsistent-return-statements
+    inputs, ctx=None
+):
+    """Validate the inputs of `XdosWorkChain`."""
+
+    assert len(inputs["xmins"]) == len(
+        inputs["xmaxs"]
+    ), "Length of xmins and xmaxs should be equal"
+    assert len(inputs["ymins"]) == len(
+        inputs["ymaxs"]
+    ), "Length of ymins and ymaxs should be equal"
+    assert len(inputs["zmins"]) == len(
+        inputs["zmaxs"]
+    ), "Length of zmins and zmaxs should be equal"
+    assert len(inputs["xmins"]) == len(
+        inputs["ymins"]
+    ), "Length of xmins and ymins should be equal"
+    assert len(inputs["xmins"]) == len(
+        inputs["zmins"]
+    ), "Length of xmins and zmins should be equal"
+    assert (
+        len(inputs["xmins"]) > 0
+    ), "At least one box should be defined"
+    assert all(
+        isinstance(x, (int, float)) for x in inputs["xmins"]
+    ), "xmins should be a list of integers or floats"
+    assert all(
+        isinstance(x, (int, float)) for x in inputs["xmaxs"]
+    ), "xmaxs should be a list of integers or floats"
+    assert all(
+        isinstance(x, (int, float)) for x in inputs["ymins"]
+    ), "ymins should be a list of integers or floats"
+    assert all(
+        isinstance(x, (int, float)) for x in inputs["ymaxs"]
+    ), "ymaxs should be a list of integers or floats"
+    assert all(
+        isinstance(x, (int, float)) for x in inputs["zmins"]
+    ), "zmins should be a list of integers or floats"
+    assert all(
+        isinstance(x, (int, float)) for x in inputs["zmaxs"]
+    ), "zmaxs should be a list of integers or floats"
 
 
 def clean_calcjob_remote(node):
@@ -83,21 +154,25 @@ class FullStudyWorkChain(ProtocolMixin, WorkChain):
         spec.input(
             "clean_workdir",
             valid_type=orm.Bool,
-            default=orm.Bool(False),
+            default=lambda: orm.Bool(False),
             help="If `True`, work directories of all calculations will be cleaned at the end of the workchain.",
         )
 
         spec.input(
             "dry_run",
             valid_type=orm.Bool,
-            default=orm.Bool(False),
+            default=lambda: orm.Bool(False),
             help="If `True`, will prepare the inputs for the calculations but not launch them.",
         )
 
         spec.expose_inputs(
             PwBaseWorkChain,
             namespace="scf",
-            exclude=["structure", "clean_workdir"],
+            exclude=[
+                "pw.structure",
+                "pw.parent_folder",
+                "clean_workdir",
+            ],
         )
 
         spec.expose_inputs(
@@ -129,6 +204,15 @@ class FullStudyWorkChain(ProtocolMixin, WorkChain):
                 "required": False,
             },
         )
+
+        spec.inputs.validator = validate_inputs
+        spec.inputs["charge_density"].validator = (
+            validate_charge_density_inputs
+        )
+        spec.inputs["projwfcbands"].validator = (
+            validate_projwfcbands_inputs
+        )
+        spec.inputs["xdos"].validator = validate_xdos_inputs
 
         spec.outline(
             cls.setup,
@@ -310,6 +394,8 @@ class FullStudyWorkChain(ProtocolMixin, WorkChain):
 
         # Construct builder
         builder = cls.get_builder()
+        builder.clean_workdir = orm.Bool(inputs["clean_workdir"])
+        builder.dry_run = orm.Bool(inputs["dry_run"])
         builder.structure = structure
         builder.scf = scf_builder
         builder.charge_density = charge_density_builder
