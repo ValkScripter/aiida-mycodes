@@ -161,6 +161,20 @@ class MyProjwfcBandsWorkChain(ProtocolMixin, WorkChain):
             },
         )
 
+        spec.input(
+            "Emin",
+            valid_type=orm.Float,
+            required=True,
+            help="Minimum energy relative to Fermi energy for the Projwfc calculation.",
+        )
+
+        spec.input(
+            "Emax",
+            valid_type=orm.Float,
+            required=True,
+            help="Maximum energy relative to Fermi energy for the Projwfc calculation.",
+        )
+
         spec.inputs.validator = validate_inputs
 
         spec.outline(
@@ -318,6 +332,8 @@ class MyProjwfcBandsWorkChain(ProtocolMixin, WorkChain):
             inputs["bands_kpoints_distance"]
         )
         builder.projwfc = projwfc
+        builder.Emin = orm.Float(inputs["Emin"])
+        builder.Emax = orm.Float(inputs["Emax"])
 
         return builder
 
@@ -391,6 +407,9 @@ class MyProjwfcBandsWorkChain(ProtocolMixin, WorkChain):
                 "number_of_bands"
             )
         )
+        self.ctx.fermi_energy = (
+            workchain.outputs.output_parameters.dict.fermi_energy
+        )
 
     def retrieve_scf(self):
         """Retrieve some output data from the SCF calculation."""
@@ -406,6 +425,9 @@ class MyProjwfcBandsWorkChain(ProtocolMixin, WorkChain):
             workchain.outputs.output_parameters.base.attributes.get(
                 "number_of_bands"
             )
+        )
+        self.ctx.fermi_energy = (
+            workchain.outputs.output_parameters.dict.fermi_energy
         )
 
     def run_bands(self):
@@ -477,6 +499,15 @@ class MyProjwfcBandsWorkChain(ProtocolMixin, WorkChain):
         )
 
         inputs = prepare_process_inputs(ProjwfcBaseWorkChain, inputs)
+        parameters = inputs.projwfc.parameters.get_dict()
+        parameters["PROJWFC"]["Emin"] = (
+            self.inputs.Emin + self.ctx.fermi_energy
+        )
+        parameters["PROJWFC"]["Emax"] = (
+            self.inputs.Emax + self.ctx.fermi_energy
+        )
+        inputs.projwfc.parameters = orm.Dict(parameters)
+
         running = self.submit(ProjwfcBaseWorkChain, **inputs)
 
         self.report(f"launching {running.process_label}<{running.pk}>")
