@@ -196,6 +196,8 @@ class ChargeDensityWorkChain(ProtocolMixin, WorkChain):
             if_(cls.should_run_scf)(
                 cls.run_scf,
                 cls.inspect_scf,
+            ).else_(
+                cls.retrieve_scf,
             ),
             cls.run_all_cd,
             cls.inspect_all_cd,
@@ -374,6 +376,23 @@ class ChargeDensityWorkChain(ProtocolMixin, WorkChain):
             > 0.05
         )  # in 1-numeration
 
+    def retrieve_scf(self):
+        """Retrieve some SCF results"""
+        workchain = self.inputs.remote_scf_folder.creator
+        if not workchain.is_finished_ok:
+            self.report(
+                f"SCF PwBaseWorkChain failed with exit status {workchain.exit_status}"
+            )
+            return self.exit_codes.ERROR_SUB_PROCESS_FAILED_SCF
+        self.ctx.workchain_scf = workchain
+        self.ctx.scf_parent_folder = workchain.outputs.remote_folder
+        self.ctx.homo_index = np.argmin(
+            workchain.outputs.output_band.get_array("occupations")[
+                self.inputs.kpoint_index.value - 1
+            ]
+            > 0.05
+        )  # in 1-numeration
+
     def run_all_cd(self):
         """Call all PpCalculation's for cd_2D and cd_3D"""
         cd_2D_inputs = AttributeDict(
@@ -382,20 +401,12 @@ class ChargeDensityWorkChain(ProtocolMixin, WorkChain):
         cd_3D_inputs = AttributeDict(
             self.exposed_inputs(PpCalculation, namespace="cd_3D")
         )
-        if self.should_run_scf():
-            cd_2D_inputs.parent_folder = self.ctx.scf_parent_folder
-            cd_3D_inputs.parent_folder = self.ctx.scf_parent_folder
+
+        cd_2D_inputs.parent_folder = self.ctx.scf_parent_folder
+        cd_3D_inputs.parent_folder = self.ctx.scf_parent_folder
 
         cd_2D_parameters = self.inputs.cd_2D.parameters.get_dict()
         cd_3D_parameters = self.inputs.cd_3D.parameters.get_dict()
-
-        occupations = cd_2D_inputs.parent_folder.creator.outputs.output_band.get_array(
-            "occupations"
-        )
-
-        self.ctx.homo_index = np.argmin(
-            occupations[self.inputs.kpoint_index.value - 1] > 0.05
-        )  # in 1-numeration
 
         cd_2D_parameters["INPUTPP"]["kband(1)"] = (
             self.ctx.homo_index + self.inputs.first_band_index
