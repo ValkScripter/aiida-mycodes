@@ -200,7 +200,6 @@ class ChargeDensityWorkChain(ProtocolMixin, WorkChain):
             cls.run_all_cd,
             cls.inspect_all_cd,
             cls.results,
-            cls.on_termination,
         )
 
         spec.exit_code(
@@ -227,8 +226,8 @@ class ChargeDensityWorkChain(ProtocolMixin, WorkChain):
             message="Both charge density calculation sub processes failed",
         )
 
-        spec.expose_outputs(PpCalculation, "cd_2D")
-        spec.expose_outputs(PpCalculation, "cd_3D")
+        spec.expose_outputs(PpCalculation, namespace="cd_2D")
+        spec.expose_outputs(PpCalculation, namespace="cd_3D")
 
     @classmethod
     def get_protocol_filepath(cls) -> pathlib.Path:
@@ -377,7 +376,6 @@ class ChargeDensityWorkChain(ProtocolMixin, WorkChain):
 
     def run_all_cd(self):
         """Call all PpCalculation's for cd_2D and cd_3D"""
-        futures = {}
         cd_2D_inputs = AttributeDict(
             self.exposed_inputs(PpCalculation, namespace="cd_2D")
         )
@@ -422,19 +420,17 @@ class ChargeDensityWorkChain(ProtocolMixin, WorkChain):
 
         future_2D = self.submit(PpCalculation, **cd_2D_inputs)
         self.report(f"launching cd_2D PpCalculation<{future_2D.pk}>")
-        futures["calc_2D"] = future_2D
+        self.to_context(**{"cd_2D": future_2D})
 
         future_3D = self.submit(PpCalculation, **cd_3D_inputs)
         self.report(f"launching cd_3D PpCalculation<{future_3D.pk}>")
-        futures["calc_3D"] = future_3D
-
-        return ToContext(**futures)
+        self.to_context(**{"cd_3D": future_3D})
 
     def inspect_all_cd(self):
         """Check that all PpCalculation's finished successfully"""
         error_codes = []
 
-        calculation = self.ctx.calc_2D
+        calculation = self.ctx.cd_2D
         if not calculation.is_finished_ok:
             self.report(
                 f"PpCalculation for cd_2D failed with exit status {calculation.exit_status}"
@@ -443,7 +439,7 @@ class ChargeDensityWorkChain(ProtocolMixin, WorkChain):
                 self.exit_codes.ERROR_SUB_PROCESS_FAILED_CD_2D
             )
 
-        calculation = self.ctx.calc_3D
+        calculation = self.ctx.cd_3D
         if not calculation.is_finished_ok:
             self.report(
                 f"PpCalculation for cd_3D failed with exit status {calculation.exit_status}"
@@ -465,16 +461,16 @@ class ChargeDensityWorkChain(ProtocolMixin, WorkChain):
 
         self.out_many(
             self.exposed_outputs(
-                self.ctx.calc_2D, PpCalculation, namespace="cd_2D"
+                self.ctx.cd_2D, PpCalculation, namespace="cd_2D"
             )
         )
         self.out_many(
             self.exposed_outputs(
-                self.ctx.calc_3D, PpCalculation, namespace="cd_3D"
+                self.ctx.cd_3D, PpCalculation, namespace="cd_3D"
             )
         )
 
-    def on_termination(self):
+    def on_terminated(self):
         """Clean the working directories of all child calculations if ``clean_workdir=True`` in the inputs."""
         super().on_terminated()
 
