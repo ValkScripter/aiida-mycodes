@@ -497,6 +497,8 @@ class FullStudyWorkChain(ProtocolMixin, WorkChain):
                 return (
                     self.exit_codes.ERROR_SUB_PROCESS_FAILED_ALL_BUT_XDOS
                 )  # All parallel calculations failed except for the Xdos
+        if len(error_codes) == 1:
+            return error_codes[0]
 
     def results(self):
         """Attach the desired output nodes directly as outputs of the workchain."""
