@@ -2,6 +2,7 @@
 
 # pylint: disable=no-member
 
+from copy import deepcopy
 import pathlib
 import typing as ty
 
@@ -171,6 +172,7 @@ class ChargeDensityWorkChain(ProtocolMixin, WorkChain):
             namespace_options={
                 "help": "Inputs for the `PpCalculation` for the 2D charge density calculation (gnuplot).",
                 "populate_defaults": False,
+                "required": False,
             },
         )
 
@@ -184,6 +186,7 @@ class ChargeDensityWorkChain(ProtocolMixin, WorkChain):
             namespace_options={
                 "help": "Inputs for the `PpCalculation` for the 3D charge density calculation (cube).",
                 "populate_defaults": False,
+                "required": False,
             },
         )
 
@@ -228,8 +231,8 @@ class ChargeDensityWorkChain(ProtocolMixin, WorkChain):
             message="Both charge density calculation sub processes failed",
         )
 
-        spec.expose_outputs(PpCalculation, namespace="cd_2D")
-        spec.expose_outputs(PpCalculation, namespace="cd_3D")
+        spec.output_namespace("cd_2D", dynamic=True, required=False)
+        spec.output_namespace("cd_3D", dynamic=True, required=False)
 
     @classmethod
     def get_protocol_filepath(cls) -> pathlib.Path:
@@ -394,75 +397,122 @@ class ChargeDensityWorkChain(ProtocolMixin, WorkChain):
         )  # in 1-numeration
 
     def run_all_cd(self):
-        """Call all PpCalculation's for cd_2D and cd_3D"""
-        cd_2D_inputs = AttributeDict(
-            self.exposed_inputs(PpCalculation, namespace="cd_2D")
-        )
-        cd_3D_inputs = AttributeDict(
-            self.exposed_inputs(PpCalculation, namespace="cd_3D")
-        )
+        """Call all PpCalculation's for cd_2D (one for each band) and cd_3D (for all bands)"""
+        # 3D Charge density for all bands
 
-        cd_2D_inputs.parent_folder = self.ctx.scf_parent_folder
-        cd_3D_inputs.parent_folder = self.ctx.scf_parent_folder
+        if "cd_3D" in self.inputs:
+            cd_3D_inputs = AttributeDict(
+                self.exposed_inputs(PpCalculation, namespace="cd_3D")
+            )
 
-        cd_2D_parameters = self.inputs.cd_2D.parameters.get_dict()
-        cd_3D_parameters = self.inputs.cd_3D.parameters.get_dict()
+            cd_3D_inputs.parent_folder = self.ctx.scf_parent_folder
 
-        cd_2D_parameters["INPUTPP"]["kband(1)"] = (
-            self.ctx.homo_index + self.inputs.first_band_index
-        )
-        cd_2D_parameters["INPUTPP"]["kband(2)"] = (
-            self.ctx.homo_index + self.inputs.last_band_index
-        )
-        cd_3D_parameters["INPUTPP"]["kband(1)"] = (
-            self.ctx.homo_index + self.inputs.first_band_index
-        )
-        cd_3D_parameters["INPUTPP"]["kband(2)"] = (
-            self.ctx.homo_index + self.inputs.last_band_index
-        )
+            cd_3D_parameters = self.inputs.cd_3D.parameters.get_dict()
 
-        cd_2D_inputs.parameters = orm.Dict(cd_2D_parameters)
-        cd_3D_inputs.parameters = orm.Dict(cd_3D_parameters)
-        cd_2D_inputs["metadata"]["call_link_label"] = "cd_2D"
-        cd_3D_inputs["metadata"]["call_link_label"] = "cd_3D"
+            cd_3D_parameters["INPUTPP"]["kband(1)"] = (
+                self.ctx.homo_index + self.inputs.first_band_index
+            )
+            cd_3D_parameters["INPUTPP"]["kband(2)"] = (
+                self.ctx.homo_index + self.inputs.last_band_index
+            )
+
+            cd_3D_inputs.parameters = orm.Dict(cd_3D_parameters)
+            cd_3D_inputs["metadata"]["call_link_label"] = "cd_3D"
+
+        # 2D Charge density for each band
+
+        if "cd_2D" in self.inputs:
+
+            cd_2D_inputs = {}
+
+            for iband in range(
+                self.inputs.first_band_index.value,
+                self.inputs.last_band_index.value + 1,
+            ):
+                cd_2D_inputs[iband] = AttributeDict(
+                    self.exposed_inputs(
+                        PpCalculation, namespace="cd_2D"
+                    )
+                )
+
+                cd_2D_inputs[iband].parent_folder = (
+                    self.ctx.scf_parent_folder
+                )
+                cd_2D_parameters = deepcopy(
+                    self.inputs.cd_2D.parameters.get_dict()
+                )
+                cd_2D_parameters["INPUTPP"]["kband"] = (
+                    self.ctx.homo_index + iband
+                )
+                cd_2D_inputs[iband].parameters = orm.Dict(
+                    cd_2D_parameters
+                )
+                cd_2D_inputs[iband]["metadata"][
+                    "call_link_label"
+                ] = f"cd_2D_{iband}"
 
         if self.ctx.dry_run:
             return cd_2D_inputs, cd_3D_inputs
 
-        future_2D = self.submit(PpCalculation, **cd_2D_inputs)
-        self.report(f"launching cd_2D PpCalculation<{future_2D.pk}>")
-        self.to_context(**{"cd_2D": future_2D})
+        # Submit 3D charge density calculation
+        if "cd_3D" in self.inputs:
+            future_3D = self.submit(PpCalculation, **cd_3D_inputs)
+            self.report(
+                f"launching cd_3D PpCalculation<{future_3D.pk}>"
+            )
+            self.to_context(**{"cd_3D": future_3D})
 
-        future_3D = self.submit(PpCalculation, **cd_3D_inputs)
-        self.report(f"launching cd_3D PpCalculation<{future_3D.pk}>")
-        self.to_context(**{"cd_3D": future_3D})
+        # Submit all 2D charge density calculations
+        if "cd_2D" in self.inputs:
+            future_2D = {}
+            for iband in range(
+                self.inputs.first_band_index.value,
+                self.inputs.last_band_index.value + 1,
+            ):
+                future_2D[f"cd_2D_{iband}"] = self.submit(
+                    PpCalculation, **cd_2D_inputs[iband]
+                )
+                self.report(
+                    f"launching cd_2D_{iband} PpCalculation<{future_2D[f'cd_2D_{iband}'].pk}>"
+                )
+            self.to_context(**future_2D)
 
     def inspect_all_cd(self):
         """Check that all PpCalculation's finished successfully"""
+        error_codes_2D = []
+
+        if "cd_2D" in self.inputs:
+            for iband in range(
+                self.inputs.first_band_index.value,
+                self.inputs.last_band_index.value + 1,
+            ):
+                calculation = self.ctx[f"cd_2D_{iband}"]
+                if not calculation.is_finished_ok:
+                    self.report(
+                        f"PpCalculation for cd_2D_{iband} failed with exit status {calculation.exit_status}"
+                    )
+                    error_codes_2D.append(
+                        self.exit_codes.ERROR_SUB_PROCESS_FAILED_CD_2D
+                    )
+
         error_codes = []
 
-        calculation = self.ctx.cd_2D
-        if not calculation.is_finished_ok:
-            self.report(
-                f"PpCalculation for cd_2D failed with exit status {calculation.exit_status}"
-            )
-            error_codes.append(
-                self.exit_codes.ERROR_SUB_PROCESS_FAILED_CD_2D
-            )
+        if "cd_3D" in self.inputs:
+            calculation = self.ctx.cd_3D
+            if not calculation.is_finished_ok:
+                self.report(
+                    f"PpCalculation for cd_3D failed with exit status {calculation.exit_status}"
+                )
+                error_codes.append(
+                    self.exit_codes.ERROR_SUB_PROCESS_FAILED_CD_3D
+                )
 
-        calculation = self.ctx.cd_3D
-        if not calculation.is_finished_ok:
-            self.report(
-                f"PpCalculation for cd_3D failed with exit status {calculation.exit_status}"
-            )
-            error_codes.append(
-                self.exit_codes.ERROR_SUB_PROCESS_FAILED_CD_3D
-            )
-
-        if len(error_codes) > 1:
-            return self.exit_codes.ERROR_SUB_PROCESS_FAILED_CD_BOTH
-        if len(error_codes) == 1:
+        if len(error_codes) == 0 and len(error_codes_2D) > 0:
+            return self.exit_codes.ERROR_SUB_PROCESS_FAILED_CD_2D
+        if len(error_codes) == 1 and len(error_codes_2D) == 0:
             return error_codes[0]
+        if len(error_codes) == 1 and len(error_codes_2D) > 0:
+            return self.exit_codes.ERROR_SUB_PROCESS_FAILED_CD_BOTH
 
     # pylint: enable=inconsistent-return-statements
 
@@ -470,16 +520,22 @@ class ChargeDensityWorkChain(ProtocolMixin, WorkChain):
         """Attach the desired output nodes directly as outputs of the workchain."""
         self.report("workchain successfully completed")
 
-        self.out_many(
-            self.exposed_outputs(
-                self.ctx.cd_2D, PpCalculation, namespace="cd_2D"
+        if "cd_2D" in self.inputs:
+            outputs = {
+                f"cd_2D_{iband}": self.ctx[
+                    f"cd_2D_{iband}"
+                ].outputs.output_data
+                for iband in range(
+                    self.inputs.first_band_index.value,
+                    self.inputs.last_band_index.value + 1,
+                )
+            }
+            self.out("cd_2D", outputs)
+
+        if "cd_3D" in self.inputs:
+            self.out(
+                "cd_3D", self.ctx.cd_3D.outputs.output_data_multiple
             )
-        )
-        self.out_many(
-            self.exposed_outputs(
-                self.ctx.cd_3D, PpCalculation, namespace="cd_3D"
-            )
-        )
 
     def on_terminated(self):
         """Clean the working directories of all child calculations if ``clean_workdir=True`` in the inputs."""
