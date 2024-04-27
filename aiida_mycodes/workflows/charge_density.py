@@ -429,27 +429,26 @@ class ChargeDensityWorkChain(ProtocolMixin, WorkChain):
                 self.inputs.first_band_index.value,
                 self.inputs.last_band_index.value + 1,
             ):
-                cd_2D_inputs[iband] = AttributeDict(
+                i1_band = self.ctx.homo_index + iband
+                cd_2D_inputs[i1_band] = AttributeDict(
                     self.exposed_inputs(
                         PpCalculation, namespace="cd_2D"
                     )
                 )
 
-                cd_2D_inputs[iband].parent_folder = (
+                cd_2D_inputs[i1_band].parent_folder = (
                     self.ctx.scf_parent_folder
                 )
                 cd_2D_parameters = deepcopy(
                     self.inputs.cd_2D.parameters.get_dict()
                 )
-                cd_2D_parameters["INPUTPP"]["kband"] = (
-                    self.ctx.homo_index + iband
-                )
-                cd_2D_inputs[iband].parameters = orm.Dict(
+                cd_2D_parameters["INPUTPP"]["kband"] = i1_band
+                cd_2D_inputs[i1_band].parameters = orm.Dict(
                     cd_2D_parameters
                 )
-                cd_2D_inputs[iband]["metadata"][
+                cd_2D_inputs[i1_band]["metadata"][
                     "call_link_label"
-                ] = f"cd_2D_{iband}"
+                ] = f"cd_2D_{i1_band}"
 
         if self.ctx.dry_run:
             return cd_2D_inputs, cd_3D_inputs
@@ -469,11 +468,12 @@ class ChargeDensityWorkChain(ProtocolMixin, WorkChain):
                 self.inputs.first_band_index.value,
                 self.inputs.last_band_index.value + 1,
             ):
-                future_2D[f"cd_2D_{iband}"] = self.submit(
-                    PpCalculation, **cd_2D_inputs[iband]
+                i1_band = self.ctx.homo_index + iband
+                future_2D[f"cd_2D_{i1_band}"] = self.submit(
+                    PpCalculation, **cd_2D_inputs[i1_band]
                 )
                 self.report(
-                    f"launching cd_2D_{iband} PpCalculation<{future_2D[f'cd_2D_{iband}'].pk}>"
+                    f"launching cd_2D_{i1_band} PpCalculation<{future_2D[f'cd_2D_{i1_band}'].pk}>"
                 )
             self.to_context(**future_2D)
 
@@ -486,10 +486,11 @@ class ChargeDensityWorkChain(ProtocolMixin, WorkChain):
                 self.inputs.first_band_index.value,
                 self.inputs.last_band_index.value + 1,
             ):
-                calculation = self.ctx[f"cd_2D_{iband}"]
+                i1_band = self.ctx.homo_index + iband
+                calculation = self.ctx[f"cd_2D_{i1_band}"]
                 if not calculation.is_finished_ok:
                     self.report(
-                        f"PpCalculation for cd_2D_{iband} failed with exit status {calculation.exit_status}"
+                        f"PpCalculation for cd_2D_{i1_band} failed with exit status {calculation.exit_status}"
                     )
                     error_codes_2D.append(
                         self.exit_codes.ERROR_SUB_PROCESS_FAILED_CD_2D
@@ -522,12 +523,15 @@ class ChargeDensityWorkChain(ProtocolMixin, WorkChain):
 
         if "cd_2D" in self.inputs:
             outputs = {
-                f"cd_2D_{iband}": self.ctx[
-                    f"cd_2D_{iband}"
+                f"cd_2D_{i1_band}": self.ctx[
+                    f"cd_2D_{i1_band}"
                 ].outputs.output_data
-                for iband in range(
-                    self.inputs.first_band_index.value,
-                    self.inputs.last_band_index.value + 1,
+                for i1_band in range(
+                    self.ctx.homo_index
+                    + self.inputs.first_band_index.value,
+                    self.ctx.homo_index
+                    + self.inputs.last_band_index.value
+                    + 1,
                 )
             }
             self.out("cd_2D", outputs)
