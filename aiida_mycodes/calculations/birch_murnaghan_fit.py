@@ -8,6 +8,8 @@ from aiida import orm
 from aiida.common import AttributeDict
 from aiida.engine import calcfunction
 
+__all__ = ["birch_murnaghan_fit"]
+
 
 def BM_law(V, E0, V0, B0, Bp):
     """
@@ -79,7 +81,7 @@ def birch_murnaghan_fit(
         fit_options["p0"] = [energies[imin], volumes[imin], 1, 1]
 
     if "sigma" not in fit_options:
-        fit_options["sigma"] = 0.1
+        fit_options["sigma"] = 0.01
 
     # Fit the Birch-Murnaghan equation of state to the data
     # pylint: disable=unbalanced-tuple-unpacking
