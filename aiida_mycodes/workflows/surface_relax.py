@@ -1,10 +1,10 @@
 """
 WorkChain to automatically perform a relaxation workflow for surface studies. Steps are the following:
 1.  Bulk conventional cell vc-relax until volum convergence (PwRelaxWorkChain)
-2.  Transform the nulk conventional cell into a slab-consistent bulk cell by cutting it and giving the Z periodicity
+2.  Transform the conv-bulk cell into a slab-consistent bulk cell with periodic surface (ase.build.surface)
 3.  Slab-consistent bulk cell vc-relax until volume convergence (PwRelaxWorkChain)
-4.  Birch-Murnaghan fit of the EoS from energies of various SCF calculation
-    with lattice parameters around previous one to get optimal lattice parameter
+4.  Birch-Murnaghan fit of the EoS from energies of various SCF calculations
+    with lattice parameters around the latter one to get optimal lattice parameter
 5.  Relaxation with Z-free top-slab and adsorbates at ideal in-plane positions with symmetries
 6.  Relaxation with free top-slab and adsorbates with no symmetry
 7.  Final SCF with symmetries to get the remaining ones
