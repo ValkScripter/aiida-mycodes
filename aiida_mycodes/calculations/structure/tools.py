@@ -3,7 +3,7 @@
 from aiida import orm
 from aiida.engine import calcfunction
 
-__all__ = ["interpolate_structures"]
+__all__ = ["interpolate_structures", "scale_structure"]
 
 
 @calcfunction
