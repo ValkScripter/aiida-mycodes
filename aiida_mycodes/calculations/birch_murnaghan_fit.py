@@ -5,7 +5,6 @@ from numpy import power
 from scipy.optimize import curve_fit
 
 from aiida import orm
-from aiida.common import AttributeDict
 from aiida.engine import calcfunction
 
 __all__ = ["birch_murnaghan_fit"]
@@ -55,8 +54,8 @@ def validate_inputs(volumes, energies, fit_options):
 def birch_murnaghan_fit(
     volumes: orm.List,
     energies: orm.List,
-    fit_options: orm.Dict = orm.Dict({}),
-) -> orm.Dict:
+    fit_options: orm.Dict = lambda: orm.Dict({}),
+):
     """
     Fit the Birch-Murnaghan equation of state to a set of volumes and energies.
 
@@ -96,11 +95,7 @@ def birch_murnaghan_fit(
     perr = np.sqrt(np.diag(pcov))
 
     return dict(
-        popt=AttributeDict(
-            {"E0": popt[0], "V0": popt[1], "B0": popt[2], "Bp": popt[3]}
-        ),
+        popt=orm.Dict(dict(zip(["E0", "V0", "B0", "Bp"], popt))),
         pcov=orm.ArrayData(pcov),
-        perr=AttributeDict(
-            {"E0": perr[0], "V0": perr[1], "B0": perr[2], "Bp": perr[3]}
-        ),
+        perr=orm.Dict(dict(zip(["E0", "V0", "B0", "Bp"], perr))),
     )
