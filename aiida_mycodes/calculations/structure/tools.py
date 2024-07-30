@@ -53,3 +53,24 @@ def interpolate_structures(
     interpolated = orm.StructureData(ase=ase_interpolated)
 
     return interpolated
+
+
+@calcfunction
+def scale_structure(
+    structure: orm.StructureData,
+    scale_factor: orm.Float,
+) -> orm.StructureData:
+    """
+    Calcfunction to scale a structure (cell and positions) by a given factor.
+
+    :param structure: the input `aiida.orm.StructureData`
+    :param scale_factor: the scaling factor
+    :return: the scaled `aiida.orm.StructureData`
+    """
+    ase_structure = structure.get_ase()
+    ase_scaled = ase_structure.copy()
+    ase_scaled.set_cell(
+        ase_structure.cell * scale_factor.value, scale_atoms=True
+    )
+
+    return orm.StructureData(ase=ase_scaled)
