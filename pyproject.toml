@@ -60,9 +60,12 @@ aiida-mycodes = "aiida_mycodes.cli:cmd_root"
 "mycodes.xdos" = "aiida_mycodes.workflows.xdos:XdosWorkChain"
 "mycodes.projwfcbands" = "aiida_mycodes.workflows.projwfcbands:MyProjwfcBandsWorkChain"
 "mycodes.full_study" = "aiida_mycodes.workflows.full_study:FullStudyWorkChain"
+"mycodes.birch_murnaghan_relax" = "aiida_mycodes.workflows.birch_murnaghan_relax:BirchMurnaghanRelaxWorkChain"
 
 [project.entry-points."aiida.calculations"]
 "mycodes.structure.interpolate" = "aiida_mycodes.calculations.structure.tools:interpolate_structures"
+"mycodes.structure.scale" = "aiida_mycodes.calculations.structure.tools:scale_structure"
+"mycodes.birch_murnaghan_fit" = "aiida_mycodes.calculations.birch_murnaghan_fit:birch_murnaghan_fit"
 
 [tool.flit.module]
 name = "aiida_mycodes"
