@@ -131,8 +131,7 @@ class ElectrostaticPotentialWorkChain(WorkChain):
         self.ctx.pp_options = self.inputs.pp_options.get_dict()
         self.ctx.protocol = self.inputs.protocol.value
 
-        self.ctx.scf_options["clean_workdir"] = False
-        self.ctx.pp_options["clean_workdir"] = False
+        self.ctx.scf_overrides["clean_workdir"] = False
 
     def run_scf(self):
         """Run the SCF calculation."""
