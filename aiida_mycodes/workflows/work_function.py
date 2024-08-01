@@ -80,7 +80,7 @@ def get_workfunction_1(fermi_energy_slab, vacuum_level_slab):
 
 @calcfunction
 def get_workfunction_2(
-    fermi_energy_slab,
+    fermi_energy_bulk,
     vacuum_level_slab,
     interior_average_slab,
     interior_average_bulk,
@@ -90,7 +90,7 @@ def get_workfunction_2(
         vacuum_level_slab.value
         - interior_average_slab.value
         + interior_average_bulk.value
-        - fermi_energy_slab.value
+        - fermi_energy_bulk.value
     )
 
     return orm.Float(workfunction_2)
@@ -411,7 +411,7 @@ class WorkFunctionWorkChain(WorkChain):
         )
 
         self.ctx.workfunction_2 = get_workfunction_2(
-            self.ctx.fermi_energy_slab,
+            self.ctx.fermi_energy_bulk,
             self.ctx.vacuum_level_slab,
             self.ctx.interior_average_slab,
             self.ctx.interior_average_bulk,
