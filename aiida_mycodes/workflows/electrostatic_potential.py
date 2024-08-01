@@ -56,7 +56,7 @@ class ElectrostaticPotentialWorkChain(WorkChain):
         spec.input(
             "npts",
             valid_type=orm.Int,
-            default=orm.Int(1000),
+            default=lambda: orm.Int(1000),
             help="Number of points of interpolation",
         )
         spec.input(
@@ -68,7 +68,9 @@ class ElectrostaticPotentialWorkChain(WorkChain):
         spec.input("scf_overrides", valid_type=orm.Dict)
         spec.input("pp_options", valid_type=orm.Dict)
         spec.input(
-            "protocol", valid_type=orm.Str, default=orm.Str("moderate")
+            "protocol",
+            valid_type=orm.Str,
+            default=lambda: orm.Str("moderate"),
         )
         spec.input(
             "clean_workdir",
@@ -76,8 +78,16 @@ class ElectrostaticPotentialWorkChain(WorkChain):
             default=lambda: orm.Bool(True),
         )
 
-        spec.output("output_data", valid_type=orm.ArrayData)
-        spec.output("output_parameters", valid_type=orm.Dict)
+        spec.output(
+            "output_data",
+            valid_type=orm.ArrayData,
+            help="Array with 3 columns: z (Ang), planar averaged potential (eV), macroscopic averaged potential (eV)",
+        )
+        spec.output(
+            "output_parameters",
+            valid_type=orm.Dict,
+            help="Output parameters of the SCF PwBaseWorkChain",
+        )
 
         spec.outline(
             cls.setup,
