@@ -1,5 +1,8 @@
 """Workchain to relax the cell of a structure using the Birch-Murnaghan equation of state."""
 
+from aiida_quantumespresso.calculations.functions.create_kpoints_from_distance import (
+    create_kpoints_from_distance,
+)
 from aiida_quantumespresso.workflows.pw.base import PwBaseWorkChain
 import numpy as np
 
@@ -7,7 +10,7 @@ from aiida import orm
 from aiida.engine import ToContext, WorkChain, calcfunction
 
 from aiida_mycodes.calculations.birch_murnaghan_fit import (
-    birch_murnaghan_fit,
+    birch_murnaghan_fit_bayesian,
 )
 from aiida_mycodes.calculations.structure.tools import scale_structure
 
@@ -38,10 +41,13 @@ class BirchMurnaghanRelaxWorkChain(WorkChain):
         structure: the input structure
         scale_std: the standard deviation to generate the scale factors with a normal law (1.0, scale_std)
         nb_scale: the number of scale factors to generate
-        fit_options: the options for the fit (optional)
+        prior_means: the prior means for the pymc bayesian analysis
+                    to fit the Birch-Murnaghan equation of state [E0, V0, B0, Bp, sigma_E]: optional
         pw_code: the code for the SCF PwBaseWorkChain
         scf_options: the options for the SCF PwBaseWorkChain
         scf_overrides: the overrides for the SCF PwBaseWorkChain
+        kpoint_distance: the distance between kpoints in the SCF PwBaseWorkChain
+                    to create the KpointsData used for all SCF calculations
         protocol: the protocol to use for the SCF PwBaseWorkChain
 
     Outputs:
@@ -49,13 +55,12 @@ class BirchMurnaghanRelaxWorkChain(WorkChain):
         relaxed_structure: the relaxed structure
         volumes: the volumes used in the fit
         energies: the energies used in the fit
-        popt: the fit results
-        perr: the fit errors
-        pcov: the fit covariance
+        popt: the mean optimal parameters of the fit [E0, V0, B0, Bp, sigma_E]
+        perr: the standard deviations of the parameters
 
     1. Generate a list of scale factors by drawing from a normal law N(1.0, scale_std)
     2. Scale the input structure by each factor
-    3. Compute the energy of each scaled structure using SCF PwBaseWorkChain
+    3. Compute the energy of each scaled structure using SCF PwBaseWorkChain with the same number of kpoints
     4. Extract the volumes and energies from the SCF output_parameters
     5. Fit the Birch-Murnaghan equation of state to the volumes and energies
     6. Return the relaxed structure, the volumes, the energies and the fit results
@@ -64,49 +69,106 @@ class BirchMurnaghanRelaxWorkChain(WorkChain):
     @classmethod
     def define(cls, spec):
         super().define(spec)
-        spec.input("structure", valid_type=orm.StructureData)
+        spec.input(
+            "structure",
+            valid_type=orm.StructureData,
+            help="The input structure.",
+        )
         spec.input(
             "scale_std",
             valid_type=orm.Float,
             default=lambda: orm.Float(0.02),
+            help="The standard deviation to generate the scale factors with a normal law (1.0, scale_std).",
         )
         spec.input(
-            "nb_scale", valid_type=orm.Int, default=lambda: orm.Int(20)
+            "nb_scale",
+            valid_type=orm.Int,
+            default=lambda: orm.Int(20),
+            help="The number of scale factors to generate.",
         )
         spec.input(
-            "fit_options",
+            "prior_means",
             valid_type=orm.Dict,
             required=False,
             default=lambda: orm.Dict({}),
+            help="The prior means for the pymc bayesian analysis to fit \
+                the Birch-Murnaghan equation of state [E0, V0, B0, Bp, sigma_E].",
         )
-        spec.input("pw_code", valid_type=orm.Code)
-        spec.input("scf_options", valid_type=orm.Dict)
-        spec.input("scf_overrides", valid_type=orm.Dict)
+        spec.input(
+            "pw_code",
+            valid_type=orm.Code,
+            help="The code for the SCF PwBaseWorkChain.",
+        )
+        spec.input(
+            "scf_options",
+            valid_type=orm.Dict,
+            help="The options for the SCF PwBaseWorkChain.",
+        )
+        spec.input(
+            "scf_overrides",
+            valid_type=orm.Dict,
+            help="The overrides for the SCF PwBaseWorkChain.",
+        )
+        spec.input(
+            "kpoint_distance",
+            valid_type=orm.Float,
+            help="The distance between kpoints in the SCF PwBaseWorkChain \
+                to create the KpointsData used for all SCF calculations.",
+        )
         spec.input(
             "protocol",
             valid_type=orm.Str,
             default=lambda: orm.Str("moderate"),
+            help="The protocol to use for the SCF PwBaseWorkChain.",
         )
         spec.input(
             "clean_workdir",
             valid_type=orm.Bool,
             default=lambda: orm.Bool(True),
+            help="Clean the working directories of all child calculations if ``clean_workdir=True`` in the inputs.",
         )
         spec.outline(
             cls.generate_scale_factors,
             cls.scale_structure,
             cls.run_scf_parallel,
+            cls.inspect_all,
             cls.extract_volumes_energies,
             cls.fit_birch_murnaghan,
             cls.return_results,
             cls.on_termination,
         )
-        spec.output("relaxed_structure", valid_type=orm.StructureData)
-        spec.output("volumes", valid_type=orm.List)
-        spec.output("energies", valid_type=orm.List)
-        spec.output("popt", valid_type=orm.Dict)
-        spec.output("perr", valid_type=orm.Dict)
-        spec.output("pcov", valid_type=orm.ArrayData)
+        spec.output(
+            "relaxed_structure",
+            valid_type=orm.StructureData,
+            help="The relaxed structure.",
+        )
+        spec.output(
+            "volumes",
+            valid_type=orm.List,
+            help="The volumes used in the fit.",
+        )
+        spec.output(
+            "energies",
+            valid_type=orm.List,
+            help="The energies used in the fit.",
+        )
+        spec.output(
+            "popt",
+            valid_type=orm.Dict,
+            help="The mean optimal parameters of the fit [E0, V0, B0, Bp, sigma_E].",
+        )
+        spec.output(
+            "perr",
+            valid_type=orm.Dict,
+            help="The standard deviations of the parameters.",
+        )
+
+        # Exit codes
+        spec.exit_code(
+            401,
+            "ERROR_SCF_FAILED",
+            message="One of the SCF calculations failed",
+        )
 
     def generate_scale_factors(self):
         """Generate the list of scale factors."""
@@ -139,15 +201,25 @@ class BirchMurnaghanRelaxWorkChain(WorkChain):
         pw_code = self.inputs.pw_code
         scf_options = self.inputs.scf_options.get_dict()
         scf_overrides = self.inputs.scf_overrides.get_dict()
+        kpoint_distance = self.inputs.kpoint_distance.value
         protocol = self.inputs.protocol.value
 
         scf_builder = PwBaseWorkChain.get_builder_from_protocol(
             code=pw_code,
-            structure=scaled_structures[0],
+            structure=self.inputs.structure,
             protocol=protocol,
             options=scf_options,
             overrides=scf_overrides,
         )
+
+        kpts = create_kpoints_from_distance(
+            structure=self.inputs.structure,
+            distance=kpoint_distance,
+            force_parity=False,
+        )
+
+        scf_builder.pop("kpoints_distance")
+        scf_builder.kpoints = kpts
 
         futures = {}
         # pylint: disable=no-member
@@ -161,6 +233,21 @@ class BirchMurnaghanRelaxWorkChain(WorkChain):
         # pylint: enable=no-member
 
         return ToContext(**futures)
+
+    # pylint: disable=inconsistent-return-statements, no-member
+    def inspect_all(self):
+        """
+        Verify that all SCF calculations finished successfully.
+        """
+
+        for i in range(self.inputs.nb_scale.value):
+            scf_workchain = self.ctx[f"scf_{i}"]
+            if not scf_workchain.is_finished_ok:
+                self.report(
+                    f"SCF PwBaseWorkChain<{scf_workchain.pk}> failed with exit status {scf_workchain.exit_status}"
+                )
+                return self.exit_codes.ERROR_SCF_FAILED
+        self.report("All SCF calculations finished successfully")
 
     def extract_volumes_energies(self):
         """Extract the volumes and energies from the SCF output_parameters."""
@@ -182,10 +269,10 @@ class BirchMurnaghanRelaxWorkChain(WorkChain):
         """Fit the Birch-Murnaghan equation of state to the volumes and energies."""
         volumes = self.ctx.volumes
         energies = self.ctx.energies
-        fit_results = birch_murnaghan_fit(
+        fit_results = birch_murnaghan_fit_bayesian(
             volumes=volumes,
             energies=energies,
-            fit_options=self.inputs.fit_options,
+            prior_means=self.inputs.prior_means,
         )
         self.ctx.fit_results = fit_results
         self.report(
@@ -206,7 +293,6 @@ class BirchMurnaghanRelaxWorkChain(WorkChain):
         self.out("energies", self.ctx.energies)
         self.out("popt", self.ctx.fit_results["popt"])
         self.out("perr", self.ctx.fit_results["perr"])
-        self.out("pcov", self.ctx.fit_results["pcov"])
 
     def on_termination(self):
         """Clean the working directories of all child calculations if ``clean_workdir=True`` in the inputs."""
