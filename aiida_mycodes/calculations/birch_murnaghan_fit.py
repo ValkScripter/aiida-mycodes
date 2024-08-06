@@ -2,6 +2,7 @@
 
 import numpy as np
 from numpy import power
+import pymc as pm
 from scipy.optimize import curve_fit
 
 from aiida import orm
@@ -27,7 +28,7 @@ def BM_law(V, E0, V0, B0, Bp):
     )
 
 
-def validate_inputs(volumes, energies, fit_options):
+def validate_inputs(volumes, energies, prior_means):
     """Validate the inputs of the entire input namespace of `birch_murnaghan_fit`."""
     if not volumes or not energies:
         return "Missing required inputs 'volumes' or 'energies'"
@@ -44,12 +45,14 @@ def validate_inputs(volumes, energies, fit_options):
             "Inputs 'volumes' and 'energies' must have the same length"
         )
 
-    if fit_options and not isinstance(fit_options, orm.Dict):
-        return "Input 'fit_options' must be of type Dict"
+    if prior_means and not isinstance(prior_means, orm.Dict):
+        return "Input 'prior_means' must be of type Dict"
 
     return None
 
 
+# pylint: disable=too-many-locals, unreachable, unused-variable
+# Deprecated: Birch-Murnaghan fit with scipy curve_fit
 @calcfunction
 def birch_murnaghan_fit(
     volumes: orm.List,
@@ -67,7 +70,9 @@ def birch_murnaghan_fit(
         "pcov": the estimated covariance of popt
         "perr": the standard errors of the parameters
     """
-
+    raise DeprecationWarning(
+        "This function is deprecated, use `birch_murnaghan_fit_bayesian` instead."
+    )
     validate_inputs(volumes, energies, fit_options)
 
     volumes = np.array(volumes.get_list())
@@ -98,4 +103,73 @@ def birch_murnaghan_fit(
         popt=orm.Dict(dict(zip(["E0", "V0", "B0", "Bp"], popt))),
         pcov=orm.ArrayData(pcov),
         perr=orm.Dict(dict(zip(["E0", "V0", "B0", "Bp"], perr))),
+    )
+
+
+# pylint: enable=unreachable
+
+
+# Birch-Murnaghan fit with pymc bayesian analysis
+@calcfunction
+def birch_murnaghan_fit_bayesian(
+    volumes: orm.List,
+    energies: orm.List,
+    prior_means: orm.Dict = lambda: orm.Dict({}),
+):
+    """
+    Fit the Birch-Murnaghan equation of state to a set of volumes and energies using pymc.
+
+    :param volumes: a list of volumes
+    :param energies: a list of energies
+    :param prior_means: the prior means for the predictors [E0, V0, B0, Bp, sigma_E]: optional
+    :return: a dictionary with the fitting results:
+        "popt": the dict of the mean optimal parameters of the fit [E0, V0, B0, Bp, sigma_E]
+        "perr": the dict of standard deviations of the fit parameters [E0, V0, B0, Bp, sigma_E]
+    """
+    validate_inputs(volumes, energies, prior_means)
+
+    volumes = np.array(volumes.get_list())
+    energies = np.array(energies.get_list())
+    prior_means = prior_means.get_dict()
+
+    # Default values for fit_options if not given
+    if not "E0" in prior_means or not "V0" in prior_means:
+        imin = np.argmin(energies)
+        prior_means["E0"] = energies[imin]
+        prior_means["V0"] = volumes[imin]
+    if not "B0" in prior_means:
+        prior_means["B0"] = 1.0
+    if not "Bp" in prior_means:
+        prior_means["Bp"] = 2.0
+    if not "sigma" in prior_means:
+        prior_means["sigma"] = 0.01
+
+    # Define the pymc model
+    model = pm.Model()
+
+    with model:
+        # Priors
+        E0 = pm.Normal("E0", mu=prior_means["E0"], sigma=0.1)
+        V0 = pm.Normal("V0", mu=prior_means["V0"], sigma=0.5)
+        B0 = pm.Normal("B0", mu=prior_means["B0"], sigma=10.0)
+        Bp = pm.Normal("Bp", mu=prior_means["Bp"], sigma=20.0)
+        eta = power(V0 / volumes, 2.0 / 3.0)
+        E = E0 + 9.0 / 16.0 * B0 * V0 * power(eta - 1.0, 2.0) * (
+            6.0 + Bp * (eta - 1.0) - 4.0 * eta
+        )
+        sigma = pm.HalfNormal("sigma", sigma=prior_means["sigma"])
+
+        # Likelihood
+        E_obs = pm.Normal("E_obs", mu=E, sigma=sigma, observed=energies)
+
+        # Run the sampler
+        idata = pm.sample(1000)
+
+    # Extract the results
+    popt = idata.posterior.mean().to_pandas().to_dict()
+    perr = idata.posterior.std().to_pandas().to_dict()
+
+    return dict(
+        popt=orm.Dict(popt),
+        perr=orm.Dict(perr),
     )
