@@ -38,6 +38,7 @@ class BirchMurnaghanRelaxWorkChain(WorkChain):
         structure: the input structure
         scale_std: the standard deviation to generate the scale factors with a normal law (1.0, scale_std)
         nb_scale: the number of scale factors to generate
+        fit_options: the options for the fit (optional)
         pw_code: the code for the SCF PwBaseWorkChain
         scf_options: the options for the SCF PwBaseWorkChain
         scf_overrides: the overrides for the SCF PwBaseWorkChain
@@ -71,6 +72,12 @@ class BirchMurnaghanRelaxWorkChain(WorkChain):
         )
         spec.input(
             "nb_scale", valid_type=orm.Int, default=lambda: orm.Int(20)
+        )
+        spec.input(
+            "fit_options",
+            valid_type=orm.Dict,
+            required=False,
+            default=lambda: orm.Dict({}),
         )
         spec.input("pw_code", valid_type=orm.Code)
         spec.input("scf_options", valid_type=orm.Dict)
@@ -176,7 +183,9 @@ class BirchMurnaghanRelaxWorkChain(WorkChain):
         volumes = self.ctx.volumes
         energies = self.ctx.energies
         fit_results = birch_murnaghan_fit(
-            volumes=volumes, energies=energies
+            volumes=volumes,
+            energies=energies,
+            fit_options=self.inputs.fit_options,
         )
         self.ctx.fit_results = fit_results
         self.report(
