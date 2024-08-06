@@ -68,6 +68,7 @@ aiida-mycodes = "aiida_mycodes.cli:cmd_root"
 "mycodes.structure.interpolate" = "aiida_mycodes.calculations.structure.tools:interpolate_structures"
 "mycodes.structure.scale" = "aiida_mycodes.calculations.structure.tools:scale_structure"
 "mycodes.birch_murnaghan_fit" = "aiida_mycodes.calculations.birch_murnaghan_fit:birch_murnaghan_fit"
+"mycodes.birch_murnaghan_fit_bayesian" = "aiida_mycodes.calculations.birch_murnaghan_fit:birch_murnaghan_fit_bayesian"
 
 [tool.flit.module]
 name = "aiida_mycodes"
