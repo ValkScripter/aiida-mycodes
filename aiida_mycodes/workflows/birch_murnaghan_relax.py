@@ -42,11 +42,11 @@ class BirchMurnaghanRelaxWorkChain(WorkChain):
         scale_std: the standard deviation to generate the scale factors with a normal law (1.0, scale_std)
         nb_scale: the number of scale factors to generate
         prior_means: the prior means for the pymc bayesian analysis
-                    to fit the Birch-Murnaghan equation of state [E0, V0, B0, Bp, sigma_E]: optional
+                    to fit the Birch-Murnaghan equation of state [E0, V0, B0, Bp, sigma]: optional
         pw_code: the code for the SCF PwBaseWorkChain
         scf_options: the options for the SCF PwBaseWorkChain
         scf_overrides: the overrides for the SCF PwBaseWorkChain
-        kpoint_distance: the distance between kpoints in the SCF PwBaseWorkChain
+        kpoints_distance: the distance between kpoints in the SCF PwBaseWorkChain
                     to create the KpointsData used for all SCF calculations
         protocol: the protocol to use for the SCF PwBaseWorkChain
 
@@ -55,7 +55,7 @@ class BirchMurnaghanRelaxWorkChain(WorkChain):
         relaxed_structure: the relaxed structure
         volumes: the volumes used in the fit
         energies: the energies used in the fit
-        popt: the mean optimal parameters of the fit [E0, V0, B0, Bp, sigma_E]
+        popt: the mean optimal parameters of the fit [E0, V0, B0, Bp, sigma]
         perr: the standard deviations of the parameters
 
     1. Generate a list of scale factors by drawing from a normal law N(1.0, scale_std)
@@ -92,7 +92,7 @@ class BirchMurnaghanRelaxWorkChain(WorkChain):
             required=False,
             default=lambda: orm.Dict({}),
             help="The prior means for the pymc bayesian analysis to fit \
-                the Birch-Murnaghan equation of state [E0, V0, B0, Bp, sigma_E].",
+                the Birch-Murnaghan equation of state [E0, V0, B0, Bp, sigma].",
         )
         spec.input(
             "pw_code",
@@ -110,7 +110,7 @@ class BirchMurnaghanRelaxWorkChain(WorkChain):
             help="The overrides for the SCF PwBaseWorkChain.",
         )
         spec.input(
-            "kpoint_distance",
+            "kpoints_distance",
             valid_type=orm.Float,
             help="The distance between kpoints in the SCF PwBaseWorkChain \
                 to create the KpointsData used for all SCF calculations.",
@@ -155,7 +155,7 @@ class BirchMurnaghanRelaxWorkChain(WorkChain):
         spec.output(
             "popt",
             valid_type=orm.Dict,
-            help="The mean optimal parameters of the fit [E0, V0, B0, Bp, sigma_E].",
+            help="The mean optimal parameters of the fit [E0, V0, B0, Bp, sigma].",
         )
         spec.output(
             "perr",
@@ -201,7 +201,7 @@ class BirchMurnaghanRelaxWorkChain(WorkChain):
         pw_code = self.inputs.pw_code
         scf_options = self.inputs.scf_options.get_dict()
         scf_overrides = self.inputs.scf_overrides.get_dict()
-        kpoint_distance = self.inputs.kpoint_distance.value
+        kpoints_distance = self.inputs.kpoints_distance.value
         protocol = self.inputs.protocol.value
 
         scf_builder = PwBaseWorkChain.get_builder_from_protocol(
@@ -214,7 +214,7 @@ class BirchMurnaghanRelaxWorkChain(WorkChain):
 
         kpts = create_kpoints_from_distance(
             structure=self.inputs.structure,
-            distance=kpoint_distance,
+            distance=kpoints_distance,
             force_parity=False,
         )
 
