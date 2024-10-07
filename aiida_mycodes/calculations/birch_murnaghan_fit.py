@@ -142,7 +142,7 @@ def birch_murnaghan_fit_bayesian(
     if not "Bp" in prior_means:
         prior_means["Bp"] = 2.0
     if not "sigma" in prior_means:
-        prior_means["sigma"] = 0.01
+        prior_means["sigma"] = 0.001
 
     # Define the pymc model
     model = pm.Model()
