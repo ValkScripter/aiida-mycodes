@@ -24,7 +24,29 @@ def BM_law(V, E0, V0, B0, Bp):
 
     eta = power(V0 / V, 2.0 / 3.0)
     return E0 + 9.0 / 16.0 * B0 * V0 * power(eta - 1.0, 2.0) * (
-        6.0 + Bp * (eta - 1.0) - 4.0 * eta
+        (Bp - 4) * (eta - 1.0) + 2
+    )
+
+
+# pylint: disable=unused-argument
+def BM_law_deriv(V, E0, V0, B0, Bp):
+    """
+    Derivative of the Birch-Murnaghan equation of state
+    :param V: volume
+    :param E0: energy at the minimum
+    :param V0: equilibrium volume
+    :param B0: bulk modulus
+    :param Bp: pressure derivative of the bulk modulus
+    :return: derivative of the energy at volume V
+    """
+
+    eta = power(V0 / V, 2.0 / 3.0)
+    return (
+        -(3.0 / 8.0)
+        * B0
+        * power(eta, 2.5)
+        * (eta - 1)
+        * (3 * (Bp - 4) * (eta - 1) + 4)
     )
 
 
