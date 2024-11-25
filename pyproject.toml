@@ -25,6 +25,7 @@ dependencies = [
     "aiida-core>=2.5,<3",
     "aiida-quantumespresso",
     "aiida-wannier90-workflows",
+    "pymc",
     "voluptuous"
 ]
 
