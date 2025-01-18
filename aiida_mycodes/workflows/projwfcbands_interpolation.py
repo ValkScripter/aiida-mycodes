@@ -8,12 +8,6 @@ from aiida_quantumespresso.workflows.protocols.utils import (
     ProtocolMixin,
     recursive_merge,
 )
-from aiida_wannier90_workflows.workflows.projwfcbands import (
-    ProjwfcBandsWorkChain,
-)
-from aiida_wannier90_workflows.workflows.projwfcbands import (
-    validate_inputs as validate_inputs_projwfcbands,
-)
 from importlib_resources import files
 from numpy import linspace
 
@@ -23,8 +17,21 @@ from aiida.common.lang import type_check
 from aiida.engine.processes import ProcessBuilder, ToContext, WorkChain
 from aiida.orm.nodes.data.base import to_aiida_type
 
+from aiida_mycodes.workflows.projwfcbands import (
+    validate_inputs as validate_inputs_projwfcbands,
+)
+from aiida_mycodes.workflows.projwfcbands import MyProjwfcBandsWorkChain
+
 from . import protocols
 from ..calculations.structure.tools import interpolate_structures
+
+# from aiida_wannier90_workflows.workflows.projwfcbands import (
+#     ProjwfcBandsWorkChain,
+# )
+# from aiida_wannier90_workflows.workflows.projwfcbands import (
+#     validate_inputs as validate_inputs_projwfcbands,
+# )
+
 
 __all__ = ["validate_inputs", "ProjwfcBandsInterpolationWorkChain"]
 
@@ -104,11 +111,11 @@ class ProjwfcBandsInterpolationWorkChain(ProtocolMixin, WorkChain):
         )
 
         spec.expose_inputs(
-            ProjwfcBandsWorkChain,
+            MyProjwfcBandsWorkChain,
             namespace="projwfcbands",
             exclude=("structure", "clean_workdir", "relax"),
             namespace_options={
-                "help": "Inputs for the `ProjwfcBandsWorkChain` for scf, bandstructure and projections calculation."
+                "help": "Inputs for the `MyProjwfcBandsWorkChain` for scf, bandstructure and projections calculation."
             },
         )
 
@@ -217,7 +224,7 @@ class ProjwfcBandsInterpolationWorkChain(ProtocolMixin, WorkChain):
 
         args = (pw_code, projwfc_code, origin_structure)
         projwfcbands_builder = (
-            ProjwfcBandsWorkChain.get_builder_from_protocol(
+            MyProjwfcBandsWorkChain.get_builder_from_protocol(
                 *args,
                 protocol=protocol,
                 overrides=inputs.get("projwfcbands", None),
@@ -295,39 +302,39 @@ class ProjwfcBandsInterpolationWorkChain(ProtocolMixin, WorkChain):
         self.report(f"Structures to process: {pk_list}")
 
     def run_all_projwfcbands(self):
-        """Call all ProjwfcBandsWorkChain's for each interpolated structure"""
+        """Call all MyProjwfcBandsWorkChain's for each interpolated structure"""
         futures = {}
         for index, structure in enumerate(
             self.ctx.interpolated_structures_list
         ):
             inputs = AttributeDict(
                 self.exposed_inputs(
-                    ProjwfcBandsWorkChain, namespace="projwfcbands"
+                    MyProjwfcBandsWorkChain, namespace="projwfcbands"
                 )
             )
             inputs.structure = structure
             inputs.metadata.call_link_label = f"PB{index}"
             inputs = prepare_process_inputs(
-                ProjwfcBandsWorkChain, inputs
+                MyProjwfcBandsWorkChain, inputs
             )
-            future = self.submit(ProjwfcBandsWorkChain, **inputs)
+            future = self.submit(MyProjwfcBandsWorkChain, **inputs)
             label = self.ctx.labels[index]
             futures[label] = future
             self.report(
-                f"launched ProjwfcBandsWorkChain for {label}<{future.pk}>"
+                f"launched MyProjwfcBandsWorkChain for {label}<{future.pk}>"
             )
         return ToContext(**futures)
 
     # pylint: disable=inconsistent-return-statements
     def inspect_all_projwfcbands(self):
-        """Check that all ProjwfcBandsWorkChain's finished successfully"""
+        """Check that all MyProjwfcBandsWorkChain's finished successfully"""
         work_chains = [self.ctx[label] for label in self.ctx.labels]
         failed_work_chains = []
         for work_chain, label in zip(work_chains, self.ctx.labels):
             if not work_chain.is_finished_ok:
                 failed_work_chains.append(work_chain)
                 self.report(
-                    f"ProjwfcBandsWorkChain for ({label}) failed with exit status {work_chain.exit_status}"
+                    f"MyProjwfcBandsWorkChain for ({label}) failed with exit status {work_chain.exit_status}"
                 )
         if len(failed_work_chains) > 0:
             return self.exit_codes.ERROR_SUB_PROCESS_FAILED_PROJWFCBANDS
