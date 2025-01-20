@@ -55,7 +55,7 @@ def validate_inputs(  # pylint: disable=unused-argument,inconsistent-return-stat
 
 class ScfInterpolationWorkChain(ProtocolMixin, WorkChain):
     """
-    WorkChain to automatically compute ProjwfcBands for a set of interpolated structures
+    WorkChain to automatically compute SCFs for a set of interpolated structures
     between an origin and a target structure
     """
 
@@ -190,6 +190,7 @@ class ScfInterpolationWorkChain(ProtocolMixin, WorkChain):
             *args,
             protocol=protocol,
             overrides=inputs.get("base", None),
+            options=options,
         )
         base_builder["pw"].pop("structure", None)
         base_builder.pop("clean_workdir", None)
@@ -211,7 +212,7 @@ class ScfInterpolationWorkChain(ProtocolMixin, WorkChain):
         balance_list = inputs.get("balance_list", None)
         builder.balance_list = orm.List(balance_list)
         builder.base = base_builder
-        builder.base.metadata = metadata_base
+        builder.base.pw.metadata = metadata_base
 
         return builder
 
