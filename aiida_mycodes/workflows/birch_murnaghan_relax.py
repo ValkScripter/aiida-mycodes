@@ -41,6 +41,9 @@ class BirchMurnaghanRelaxWorkChain(WorkChain):
         structure: the input structure
         scale_std: the standard deviation to generate the scale factors with a normal law (1.0, scale_std)
         nb_scale: the number of scale factors to generate
+        scale_a: whether to scale the lattice parameter a (default: True)
+        scale_b: whether to scale the lattice parameter b (default: True)
+        scale_c: whether to scale the lattice parameter c (default: True)
         prior_means: the prior means for the pymc bayesian analysis
                     to fit the Birch-Murnaghan equation of state [E0, V0, B0, Bp, sigma]: optional
         pw_code: the code for the SCF PwBaseWorkChain
@@ -85,6 +88,27 @@ class BirchMurnaghanRelaxWorkChain(WorkChain):
             valid_type=orm.Int,
             default=lambda: orm.Int(20),
             help="The number of scale factors to generate.",
+        )
+        spec.input(
+            "scale_a",
+            valid_type=orm.Bool,
+            default=lambda: orm.Bool(True),
+            required=True,
+            help="Whether to scale the lattice parameter a.",
+        )
+        spec.input(
+            "scale_b",
+            valid_type=orm.Bool,
+            default=lambda: orm.Bool(True),
+            required=True,
+            help="Whether to scale the lattice parameter b.",
+        )
+        spec.input(
+            "scale_c",
+            valid_type=orm.Bool,
+            default=lambda: orm.Bool(True),
+            required=True,
+            help="Whether to scale the lattice parameter c.",
         )
         spec.input(
             "prior_means",
@@ -187,6 +211,9 @@ class BirchMurnaghanRelaxWorkChain(WorkChain):
             scaled_structure = scale_structure(
                 structure=structure,
                 scale_factor=orm.Float(scale_factor),
+                scale_a=self.inputs.scale_a,
+                scale_b=self.inputs.scale_b,
+                scale_c=self.inputs.scale_c,
             )
             scaled_structures.append(scaled_structure)
         self.ctx.scaled_structures = scaled_structures
@@ -287,6 +314,9 @@ class BirchMurnaghanRelaxWorkChain(WorkChain):
         relaxed_structure = scale_structure(
             structure=self.inputs.structure,
             scale_factor=orm.Float(balance),
+            scale_a=self.inputs.scale_a,
+            scale_b=self.inputs.scale_b,
+            scale_c=self.inputs.scale_c,
         )
         self.out("relaxed_structure", relaxed_structure)
         self.out("volumes", self.ctx.volumes)
