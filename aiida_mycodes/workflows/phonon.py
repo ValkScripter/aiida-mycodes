@@ -1,14 +1,17 @@
-from aiida.engine import WorkChain, ProcessSpec, Process
+from typing import Union
+
+from aiida.engine import WorkChain, Process, ProcessSpec
 from aiida.engine.processes import if_
 from aiida_quantumespresso.workflows.matdyn.base import MatdynBaseWorkChain
 from aiida_quantumespresso.workflows.ph.base import PhBaseWorkChain
 from aiida_quantumespresso.workflows.q2r.base import Q2rBaseWorkChain
+from plumpy import WorkChainSpec
 
 
 class PhononWorkChain(WorkChain, Process):
 
     @classmethod
-    def define(cls, spec: ProcessSpec):
+    def define(cls, spec: Union[WorkChainSpec, ProcessSpec]):
         super().define(spec)
 
         spec.expose_inputs(
