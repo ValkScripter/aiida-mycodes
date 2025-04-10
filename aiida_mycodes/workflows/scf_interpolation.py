@@ -208,9 +208,11 @@ class ScfInterpolationWorkChain(ProtocolMixin, WorkChain):
         builder.origin_structure = origin_structure
         builder.target_structure = target_structure
         nb_structures = inputs.get("nb_structures", None)
-        builder.nb_structures = orm.Int(nb_structures)
+        if nb_structures is not None:
+            builder.nb_structures = orm.Int(nb_structures)
         balance_list = inputs.get("balance_list", None)
-        builder.balance_list = orm.List(balance_list)
+        if balance_list is not None:
+            builder.balance_list = orm.List(balance_list)
         builder.base = base_builder
         builder.base.pw.metadata = metadata_base
 
