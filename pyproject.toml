@@ -65,6 +65,7 @@ aiida-mycodes = "aiida_mycodes.cli:cmd_root"
 "mycodes.birch_murnaghan_relax" = "aiida_mycodes.workflows.birch_murnaghan_relax:BirchMurnaghanRelaxWorkChain"
 "mycodes.electrostatic_potential" = "aiida_mycodes.workflows.electrostatic_potential:ElectrostaticPotentialWorkChain"
 "mycodes.work_function" = "aiida_mycodes.workflows.work_function:WorkFunctionWorkChain"
+"mycodes.phonon" = "aiida_mycodes.workflows.phonon:PhononWorkChain"
 
 [project.entry-points."aiida.calculations"]
 "mycodes.structure.interpolate" = "aiida_mycodes.calculations.structure.tools:interpolate_structures"
