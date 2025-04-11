@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project version="4">
-  <component name="PublishConfigData" serverName="im274966@CeaComputer:22 agent" uploadOnCheckin="08b55f26-1ee3-45f4-965c-fe615860be00" remoteFilesAllowedToDisappearOnAutoupload="false">
+  <component name="PublishConfigData" serverName="im274966@CeaComputer:22 agent" remoteFilesAllowedToDisappearOnAutoupload="false">
     <serverData>
       <paths name="im274966@CeaComputer:22 agent">
         <serverdata>
@@ -10,6 +10,5 @@
         </serverdata>
       </paths>
     </serverData>
-    <option name="myUploadOnCheckinName" value="im274966@CeaComputer:22 agent" />
   </component>
 </project>
