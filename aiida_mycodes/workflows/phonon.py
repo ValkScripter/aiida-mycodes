@@ -12,10 +12,22 @@ from plumpy import WorkChainSpec
 
 def validate_inputs(inputs):
     """Validate the inputs of the entire input namespace of `PhononWorkChain`."""
-    if not ("remote_ph_folder" in inputs ^ ("ph" in inputs)):
-        return "Specify either `remote_ph_folder` or `ph` not both"
+    if ("remote_ph_folder" in inputs and "ph" in inputs) or ("remote_ph_folder" not in inputs and "ph" not in inputs):
+        return "Specify either `remote_ph_folder` or `ph`, not both"
+    if not ("remote_ph_folder" in inputs) and ("ph" in inputs):
+        if inputs["ph"] is None:
+            return "Specify `ph` input if `remote_ph_folder` is not specified"
+
 
 class PhononWorkChain(WorkChain, Process):
+    """
+    Class for running a high-level phonon workflow.
+
+    This class orchestrates sub-processes to perform phonon calculations, specifically launching
+    and handling outputs of `PhBaseWorkChain`, `Q2rBaseWorkChain`, and `MatdynBaseWorkChain`.
+    The `PhononWorkChain` determines the execution sequence of sub-processes, manages dependencies
+    between them, and defines a structured workflow for phonon simulations.
+    """
 
     @classmethod
     def define(cls, spec: Union[WorkChainSpec, ProcessSpec]):
@@ -111,11 +123,19 @@ class PhononWorkChain(WorkChain, Process):
             message="The `MatdynBaseWorkChain` sub processes failed.",
         )
 
+        spec.exit_code(
+            404,
+            "ERROR_NO_REMOTE_PH_FOLDER_OR_PH_INPUT_SPECIFIED",
+            message="Neither `remote_ph_folder` nor `ph` input was specified.",
+        )
+
     def setup(self):
         """
         Set up the context variables.
         """
         self.ctx.ph_workchain_remote_folder = self.inputs.get("remote_ph_folder", None)
+        if self.ctx.ph_workchain_remote_folder is None and "ph" not in self.inputs:
+            return self.exit_codes.ERROR_NO_REMOTE_PH_FOLDER_OR_PH_INPUT_SPECIFIED
         self.ctx.q2r_workchain_force_constants = None
 
     def should_run_ph(self):
