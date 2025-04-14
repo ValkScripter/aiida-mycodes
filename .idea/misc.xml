@@ -3,5 +3,5 @@
   <component name="Black">
     <option name="sdkName" value="Remote Python 3.10.12 (sftp://im274966@CeaComputer:22/home/im274966/envs/aiida/bin/python)" />
   </component>
-  <component name="ProjectRootManager" version="2" project-jdk-name="Remote Python 3.10.12 (sftp://im274966@CeaComputer:22/home/im274966/envs/aiida/bin/python)" project-jdk-type="Python SDK" />
+  <component name="ProjectRootManager" version="2" project-jdk-name="Python 3.10 virtualenv at ~/envs/aiida" project-jdk-type="Python SDK" />
 </project>
