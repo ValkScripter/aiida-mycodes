@@ -72,6 +72,19 @@ class PhononWorkChain(WorkChain, Process):
             },
         )
 
+        spec.expose_inputs(
+            MatdynBaseWorkChain,
+            namespace="matdyn_2",
+            exclude=[
+                "matdyn.force_constants",
+                "matdyn.parent_folder",
+            ],
+            namespace_options={
+                "help": "Inputs for the second `MatdynBaseWorkChain` sub process.",
+                "required": False,
+            },
+        )
+
         spec.input(
             "clean_workdir",
             valid_type=orm.Bool,
@@ -92,6 +105,10 @@ class PhononWorkChain(WorkChain, Process):
             cls.inspect_q2r,
             cls.launch_matdyn,
             cls.inspect_matdyn,
+            if_(cls.should_run_matdyn_2)(
+                cls.launch_matdyn_2,
+                cls.inspect_matdyn_2,
+            ),
         )
 
         spec.expose_outputs(
@@ -119,6 +136,15 @@ class PhononWorkChain(WorkChain, Process):
             },
         )
 
+        spec.expose_outputs(
+            MatdynBaseWorkChain,
+            namespace="matdyn_2",
+            namespace_options={
+                "help": "Outputs of the second `MatdynBaseWorkChain` sub process.",
+                "required": False,
+            },
+        )
+
         spec.exit_code(
             401,
             "ERROR_SUB_PROCESS_FAILED_PH",
@@ -139,6 +165,12 @@ class PhononWorkChain(WorkChain, Process):
 
         spec.exit_code(
             404,
+            "ERROR_SUB_PROCESS_FAILED_MATDYN_2",
+            message="The second `MatdynBaseWorkChain` sub processes failed.",
+        )
+
+        spec.exit_code(
+            405,
             "ERROR_NO_REMOTE_PH_FOLDER_OR_PH_INPUT_SPECIFIED",
             message="Neither `remote_ph_folder` nor `ph` input was specified.",
         )
@@ -179,7 +211,17 @@ class PhononWorkChain(WorkChain, Process):
         """
         Return whether the `PhBaseWorkChain` should be run based on the presence of the `ph` input namespace.
         """
-        return "ph" in self.inputs
+        return "ph" in self.inputs and self.inputs["ph"] is not None
+
+    def should_run_matdyn_2(self):
+        """
+        Return whether the second `MatdynBaseWorkChain` should be run
+        based on the presence of the `matdyn_2` input namespace.
+        """
+        return (
+            "matdyn_2" in self.inputs
+            and self.inputs["matdyn_2"] is not None
+        )
 
     def launch_ph(self):
         """
@@ -277,6 +319,40 @@ class PhononWorkChain(WorkChain, Process):
             )
         )
         self.report("MatdynBaseWorkChain completed")
+
+    def launch_matdyn_2(self):
+        """
+        Launch the second `MatdynBaseWorkChain`.
+        """
+        inputs = self.exposed_inputs(MatdynBaseWorkChain, "matdyn_2")
+        # inputs["matdyn"]["force_constants"] = self.ctx.q2r_workchain_force_constants
+        matdyn_inputs = prepare_process_inputs(
+            MatdynBaseWorkChain, inputs
+        )
+        matdyn_inputs["matdyn"][
+            "force_constants"
+        ] = self.ctx.q2r_workchain_force_constants
+        future = self.submit(MatdynBaseWorkChain, **matdyn_inputs)
+        self.report(
+            f"launching second MatdynBaseWorkChain<{future.pk}>"
+        )
+        self.to_context(matdyn_2_workchain=future)
+
+    def inspect_matdyn_2(self):
+        """
+        Check that the second `MatdynBaseWorkChain` finished successfully.
+        """
+        workchain = self.ctx.matdyn_2_workchain
+        if not workchain.is_finished_ok:
+            self.report(
+                f"second MatdynBaseWorkChain failed with exit status {workchain.exit_status}"
+            )
+            return self.exit_codes.ERROR_SUB_PROCESS_FAILED_MATDYN_2
+        self.out_many(
+            self.exposed_outputs(
+                workchain, MatdynBaseWorkChain, namespace="matdyn_2"
+            )
+        )
 
     def on_terminated(self):
         """Clean the working directories of all child calculations if ``clean_workdir=True`` in the inputs."""
