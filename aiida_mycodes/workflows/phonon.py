@@ -16,16 +16,7 @@ from aiida import orm
 from aiida.engine import Process, ProcessSpec, WorkChain
 from aiida.engine.processes import if_
 
-
-def validate_inputs(inputs):
-    """Validate the inputs of the entire input namespace of `PhononWorkChain`."""
-    if ("remote_ph_folder" in inputs and "ph" in inputs) or (
-        "remote_ph_folder" not in inputs and "ph" not in inputs
-    ):
-        return "Specify either `remote_ph_folder` or `ph`, not both"
-    if not ("remote_ph_folder" in inputs) and ("ph" in inputs):
-        if inputs["ph"] is None:
-            return "Specify `ph` input if `remote_ph_folder` is not specified"
+__all__ = ["PhononWorkChain"]
 
 
 class PhononWorkChain(WorkChain, Process):
@@ -81,7 +72,14 @@ class PhononWorkChain(WorkChain, Process):
             },
         )
 
-        spec.inputs.validator = validate_inputs
+        spec.input(
+            "clean_workdir",
+            valid_type=orm.Bool,
+            default=lambda: orm.Bool(False),
+            help="If `True`, work directories of all called calculations will be cleaned at the end of execution.",
+        )
+
+        spec.inputs.validator = cls.validate_inputs
 
         # noinspection PyTypeChecker
         spec.outline(
@@ -144,6 +142,22 @@ class PhononWorkChain(WorkChain, Process):
             "ERROR_NO_REMOTE_PH_FOLDER_OR_PH_INPUT_SPECIFIED",
             message="Neither `remote_ph_folder` nor `ph` input was specified.",
         )
+
+    @classmethod
+    def validate_inputs(cls, value, port_namespace):
+        """Validate the inputs of the top level namespace."""
+        if not (
+            "remote_ph_folder" in port_namespace
+            or "ph" in port_namespace
+        ):
+            return "Specify either `remote_ph_folder` or `ph` input"
+        if ("remote_ph_folder" in value and "ph" in value) or (
+            "remote_ph_folder" not in value and "ph" not in value
+        ):
+            return "Specify either `remote_ph_folder` or `ph`, not both"
+        if not ("remote_ph_folder" in value) and ("ph" in value):
+            if value["ph"] is None:
+                return "Specify `ph` input if `remote_ph_folder` is not specified"
 
     def setup(self):
         """
@@ -263,3 +277,41 @@ class PhononWorkChain(WorkChain, Process):
             )
         )
         self.report("MatdynBaseWorkChain completed")
+
+    def on_terminated(self):
+        """Clean the working directories of all child calculations if ``clean_workdir=True`` in the inputs."""
+        super().on_terminated()
+
+        if self.inputs.clean_workdir.value is False:
+            self.report("remote folders will not be cleaned")
+            return
+
+        cleaned_calcs = clean_workchain_calcs(self.node)
+
+        if cleaned_calcs:
+            self.report(
+                f"cleaned remote folders of calculations: {' '.join(map(str, cleaned_calcs))}"
+            )
+
+
+def clean_calcjob_remote(node):
+    """Clean the remote directory of a ``CalcJobNode``."""
+    cleaned = False
+    try:
+        node.outputs.remote_folder._clean()  # pylint: disable=protected-access
+        cleaned = True
+    except (OSError, KeyError):
+        pass
+    return cleaned
+
+
+def clean_workchain_calcs(workchain):
+    """Clean all remote directories of a workchain's descendant calculations."""
+    cleaned_calcs = []
+
+    for called_descendant in workchain.called_descendants:
+        if isinstance(called_descendant, orm.CalcJobNode):
+            if clean_calcjob_remote(called_descendant):
+                cleaned_calcs.append(called_descendant.pk)
+
+    return cleaned_calcs
