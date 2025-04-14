@@ -1,18 +1,27 @@
+"""Workchain to run a high-level phonon workflow."""
+
+# pylint: disable=no-member, inconsistent-return-statements
+
 from typing import Union
 
-from aiida import orm
-from aiida.engine import WorkChain, Process, ProcessSpec
-from aiida.engine.processes import if_
 from aiida_quantumespresso.utils.mapping import prepare_process_inputs
-from aiida_quantumespresso.workflows.matdyn.base import MatdynBaseWorkChain
+from aiida_quantumespresso.workflows.matdyn.base import (
+    MatdynBaseWorkChain,
+)
 from aiida_quantumespresso.workflows.ph.base import PhBaseWorkChain
 from aiida_quantumespresso.workflows.q2r.base import Q2rBaseWorkChain
 from plumpy import WorkChainSpec
 
+from aiida import orm
+from aiida.engine import Process, ProcessSpec, WorkChain
+from aiida.engine.processes import if_
+
 
 def validate_inputs(inputs):
     """Validate the inputs of the entire input namespace of `PhononWorkChain`."""
-    if ("remote_ph_folder" in inputs and "ph" in inputs) or ("remote_ph_folder" not in inputs and "ph" not in inputs):
+    if ("remote_ph_folder" in inputs and "ph" in inputs) or (
+        "remote_ph_folder" not in inputs and "ph" not in inputs
+    ):
         return "Specify either `remote_ph_folder` or `ph`, not both"
     if not ("remote_ph_folder" in inputs) and ("ph" in inputs):
         if inputs["ph"] is None:
@@ -46,23 +55,30 @@ class PhononWorkChain(WorkChain, Process):
             namespace_options={
                 "help": "Inputs for the `PhBaseWorkChain` sub process.",
                 "required": False,
-            }
+            },
         )
 
         spec.expose_inputs(
             Q2rBaseWorkChain,
             namespace="q2r",
+            exclude=[
+                "q2r.parent_folder",
+            ],
             namespace_options={
                 "help": "Inputs for the `Q2rBaseWorkChain` sub process.",
-            }
+            },
         )
 
         spec.expose_inputs(
             MatdynBaseWorkChain,
             namespace="matdyn",
+            exclude=[
+                "matdyn.force_constants",
+                "matdyn.parent_folder",
+            ],
             namespace_options={
                 "help": "Inputs for the `MatdynBaseWorkChain` sub process.",
-            }
+            },
         )
 
         spec.inputs.validator = validate_inputs
@@ -86,7 +102,7 @@ class PhononWorkChain(WorkChain, Process):
             namespace_options={
                 "help": "Outputs of the `PhBaseWorkChain` sub process.",
                 "required": False,
-            }
+            },
         )
 
         spec.expose_outputs(
@@ -94,7 +110,7 @@ class PhononWorkChain(WorkChain, Process):
             namespace="q2r",
             namespace_options={
                 "help": "Outputs of the `Q2rBaseWorkChain` sub process.",
-            }
+            },
         )
 
         spec.expose_outputs(
@@ -102,7 +118,7 @@ class PhononWorkChain(WorkChain, Process):
             namespace="matdyn",
             namespace_options={
                 "help": "Outputs of the `MatdynBaseWorkChain` sub process.",
-            }
+            },
         )
 
         spec.exit_code(
@@ -133,9 +149,16 @@ class PhononWorkChain(WorkChain, Process):
         """
         Set up the context variables.
         """
-        self.ctx.ph_workchain_remote_folder = self.inputs.get("remote_ph_folder", None)
-        if self.ctx.ph_workchain_remote_folder is None and "ph" not in self.inputs:
-            return self.exit_codes.ERROR_NO_REMOTE_PH_FOLDER_OR_PH_INPUT_SPECIFIED
+        self.ctx.ph_workchain_remote_folder = self.inputs.get(
+            "remote_ph_folder", None
+        )
+        if (
+            self.ctx.ph_workchain_remote_folder is None
+            and "ph" not in self.inputs
+        ):
+            return (
+                self.exit_codes.ERROR_NO_REMOTE_PH_FOLDER_OR_PH_INPUT_SPECIFIED
+            )
         self.ctx.q2r_workchain_force_constants = None
 
     def should_run_ph(self):
@@ -164,8 +187,14 @@ class PhononWorkChain(WorkChain, Process):
                 f"PhBaseWorkChain failed with exit status {workchain.exit_status}"
             )
             return self.exit_codes.ERROR_SUB_PROCESS_FAILED_PH
-        self.ctx.ph_workchain_remote_folder = workchain.outputs.remote_folder
-        self.out_many(self.exposed_outputs(workchain, PhBaseWorkChain, namespace="ph"))
+        self.ctx.ph_workchain_remote_folder = (
+            workchain.outputs.remote_folder
+        )
+        self.out_many(
+            self.exposed_outputs(
+                workchain, PhBaseWorkChain, namespace="ph"
+            )
+        )
         self.report("Phonon calculation completed")
 
     def launch_q2r(self):
@@ -173,8 +202,11 @@ class PhononWorkChain(WorkChain, Process):
         Launch the `Q2rBaseWorkChain`.
         """
         inputs = self.exposed_inputs(Q2rBaseWorkChain, "q2r")
-        inputs["q2r"]["parent_folder"] = self.ctx.ph_workchain_remote_folder
+        # inputs["q2r"]["parent_folder"] = self.ctx.ph_workchain_remote_folder
         q2r_inputs = prepare_process_inputs(Q2rBaseWorkChain, inputs)
+        q2r_inputs["q2r"][
+            "parent_folder"
+        ] = self.ctx.ph_workchain_remote_folder
         future = self.submit(Q2rBaseWorkChain, **q2r_inputs)
         self.report(f"launching Q2rBaseWorkChain<{future.pk}>")
         self.to_context(q2r_workchain=future)
@@ -189,8 +221,14 @@ class PhononWorkChain(WorkChain, Process):
                 f"Q2rBaseWorkChain failed with exit status {workchain.exit_status}"
             )
             return self.exit_codes.ERROR_SUB_PROCESS_FAILED_Q2R
-        self.ctx.q2r_workchain_force_constants = workchain.outputs.force_constants
-        self.out_many(self.exposed_outputs(workchain, Q2rBaseWorkChain, namespace="q2r"))
+        self.ctx.q2r_workchain_force_constants = (
+            workchain.outputs.force_constants
+        )
+        self.out_many(
+            self.exposed_outputs(
+                workchain, Q2rBaseWorkChain, namespace="q2r"
+            )
+        )
         self.report("Q2rBaseWorkChain completed")
 
     def launch_matdyn(self):
@@ -198,8 +236,13 @@ class PhononWorkChain(WorkChain, Process):
         Launch the `MatdynBaseWorkChain`.
         """
         inputs = self.exposed_inputs(MatdynBaseWorkChain, "matdyn")
-        inputs["matdyn"]["force_constants"] = self.ctx.q2r_workchain_force_constants
-        matdyn_inputs = prepare_process_inputs(MatdynBaseWorkChain, inputs)
+        # inputs["matdyn"]["force_constants"] = self.ctx.q2r_workchain_force_constants
+        matdyn_inputs = prepare_process_inputs(
+            MatdynBaseWorkChain, inputs
+        )
+        matdyn_inputs["matdyn"][
+            "force_constants"
+        ] = self.ctx.q2r_workchain_force_constants
         future = self.submit(MatdynBaseWorkChain, **matdyn_inputs)
         self.report(f"launching MatdynBaseWorkChain<{future.pk}>")
         self.to_context(matdyn_workchain=future)
@@ -214,5 +257,9 @@ class PhononWorkChain(WorkChain, Process):
                 f"MatdynBaseWorkChain failed with exit status {workchain.exit_status}"
             )
             return self.exit_codes.ERROR_SUB_PROCESS_FAILED_MATDYN
-        self.out_many(self.exposed_outputs(workchain, MatdynBaseWorkChain, namespace="matdyn"))
+        self.out_many(
+            self.exposed_outputs(
+                workchain, MatdynBaseWorkChain, namespace="matdyn"
+            )
+        )
         self.report("MatdynBaseWorkChain completed")
