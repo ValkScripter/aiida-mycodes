@@ -105,10 +105,6 @@ class PhononWorkChain(WorkChain, Process):
             cls.inspect_q2r,
             cls.launch_matdyn,
             cls.inspect_matdyn,
-            if_(cls.should_run_matdyn_2)(
-                cls.launch_matdyn_2,
-                cls.inspect_matdyn_2,
-            ),
         )
 
         spec.expose_outputs(
@@ -289,7 +285,7 @@ class PhononWorkChain(WorkChain, Process):
 
     def launch_matdyn(self):
         """
-        Launch the `MatdynBaseWorkChain`.
+        Launch the `MatdynBaseWorkChain` and eventually the second one.
         """
         inputs = self.exposed_inputs(MatdynBaseWorkChain, "matdyn")
         # inputs["matdyn"]["force_constants"] = self.ctx.q2r_workchain_force_constants
@@ -303,9 +299,12 @@ class PhononWorkChain(WorkChain, Process):
         self.report(f"launching MatdynBaseWorkChain<{future.pk}>")
         self.to_context(matdyn_workchain=future)
 
+        if self.should_run_matdyn_2():
+            self.launch_matdyn_2()
+
     def inspect_matdyn(self):
         """
-        Check that the `MatdynBaseWorkChain` finished successfully.
+        Check that the `MatdynBaseWorkChain` finished successfully and eventually the second one.
         """
         workchain = self.ctx.matdyn_workchain
         if not workchain.is_finished_ok:
@@ -319,6 +318,9 @@ class PhononWorkChain(WorkChain, Process):
             )
         )
         self.report("MatdynBaseWorkChain completed")
+
+        if self.should_run_matdyn_2():
+            self.inspect_matdyn_2()
 
     def launch_matdyn_2(self):
         """
