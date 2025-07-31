@@ -1,18 +1,17 @@
 """Workchain to relax the cell of a structure using the Birch-Murnaghan equation of state."""
 
+import numpy as np
+from aiida import orm
+from aiida.engine import ToContext, WorkChain, calcfunction
 from aiida_quantumespresso.calculations.functions.create_kpoints_from_distance import (
     create_kpoints_from_distance,
 )
 from aiida_quantumespresso.workflows.pw.base import PwBaseWorkChain
-import numpy as np
 
-from aiida import orm
-from aiida.engine import ToContext, WorkChain, calcfunction
-
-from aiida_mycodes.calculations.birch_murnaghan_fit import (
+from ..calculations.birch_murnaghan_fit import (
     birch_murnaghan_fit_bayesian,
 )
-from aiida_mycodes.calculations.structure.tools import scale_structure
+from ..calculations.structure.tools import scale_structure
 
 __all__ = ["BirchMurnaghanRelaxWorkChain"]
 
