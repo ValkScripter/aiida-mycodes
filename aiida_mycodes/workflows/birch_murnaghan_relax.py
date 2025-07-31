@@ -1,12 +1,13 @@
 """Workchain to relax the cell of a structure using the Birch-Murnaghan equation of state."""
 
-import numpy as np
-from aiida import orm
-from aiida.engine import ToContext, WorkChain, calcfunction
 from aiida_quantumespresso.calculations.functions.create_kpoints_from_distance import (
     create_kpoints_from_distance,
 )
 from aiida_quantumespresso.workflows.pw.base import PwBaseWorkChain
+import numpy as np
+
+from aiida import orm
+from aiida.engine import ToContext, WorkChain, calcfunction
 
 from ..calculations.birch_murnaghan_fit import (
     birch_murnaghan_fit_bayesian,
@@ -309,7 +310,14 @@ class BirchMurnaghanRelaxWorkChain(WorkChain):
         """Return the relaxed structure, the volumes, the energies and the fit results."""
         V0 = self.ctx.fit_results["popt"].get_dict()["V0"]
         V = self.inputs.structure.get_ase().get_volume()
-        balance = (V0 / V) ** (1.0 / 3.0)
+        n = sum(
+            [
+                self.inputs.scale_a.value,
+                self.inputs.scale_b.value,
+                self.inputs.scale_c.value,
+            ]
+        )
+        balance = (V0 / V) ** (1.0 / n)
         relaxed_structure = scale_structure(
             structure=self.inputs.structure,
             scale_factor=orm.Float(balance),
