@@ -71,6 +71,7 @@ aiida-mycodes = "aiida_mycodes.cli:cmd_root"
 [project.entry-points."aiida.calculations"]
 "mycodes.structure.interpolate" = "aiida_mycodes.calculations.structure.tools:interpolate_structures"
 "mycodes.structure.scale" = "aiida_mycodes.calculations.structure.tools:scale_structure"
+"mycodes.structure.superposition" = "aiida_mycodes.calculations.structure.tools:superposition"
 "mycodes.birch_murnaghan_fit" = "aiida_mycodes.calculations.birch_murnaghan_fit:birch_murnaghan_fit"
 "mycodes.birch_murnaghan_fit_bayesian" = "aiida_mycodes.calculations.birch_murnaghan_fit:birch_murnaghan_fit_bayesian"
 
@@ -91,6 +92,8 @@ disable = [
     "too-many-ancestors",
     "invalid-name",
     "duplicate-code",
+    "too-many-locals",
+    "too-many-positional-arguments",
 ]
 
 [tool.pytest.ini_options]
