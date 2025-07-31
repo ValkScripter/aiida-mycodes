@@ -1,14 +1,13 @@
 """Calculation plugin for fitting the Birch-Murnaghan equation of state to a set of volumes and energies."""
 
 import numpy as np
-from numpy import power
 import pymc as pm
-from scipy.optimize import curve_fit
-
 from aiida import orm
 from aiida.engine import calcfunction
+from numpy import power
+from scipy.optimize import curve_fit
 
-__all__ = ["birch_murnaghan_fit"]
+__all__ = ["birch_murnaghan_fit", "birch_murnaghan_fit_bayesian"]
 
 
 def BM_law(V, E0, V0, B0, Bp):
