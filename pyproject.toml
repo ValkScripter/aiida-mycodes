@@ -67,6 +67,8 @@ aiida-mycodes = "aiida_mycodes.cli:cmd_root"
 "mycodes.electrostatic_potential" = "aiida_mycodes.workflows.electrostatic_potential:ElectrostaticPotentialWorkChain"
 "mycodes.work_function" = "aiida_mycodes.workflows.work_function:WorkFunctionWorkChain"
 "mycodes.phonon" = "aiida_mycodes.workflows.phonon:PhononWorkChain"
+"mycodes.superposition_scf" = "aiida_mycodes.workflows.superposition_scf:SuperpositionSCFWorkChain"
+"mycodes.fireball_superposition_scf" = "aiida_mycodes.workflows.superposition_scf:FireballSuperpositionSCFWorkChain"
 
 [project.entry-points."aiida.calculations"]
 "mycodes.structure.interpolate" = "aiida_mycodes.calculations.structure.tools:interpolate_structures"
@@ -94,6 +96,7 @@ disable = [
     "duplicate-code",
     "too-many-locals",
     "too-many-positional-arguments",
+    "inconsistent-return-statements",
 ]
 
 [tool.pytest.ini_options]
