@@ -67,6 +67,7 @@ aiida-mycodes = "aiida_mycodes.cli:cmd_root"
 "mycodes.electrostatic_potential" = "aiida_mycodes.workflows.electrostatic_potential:ElectrostaticPotentialWorkChain"
 "mycodes.work_function" = "aiida_mycodes.workflows.work_function:WorkFunctionWorkChain"
 "mycodes.phonon" = "aiida_mycodes.workflows.phonon:PhononWorkChain"
+"mycodes.relaxation_phonon" = "aiida_mycodes.workflows.relaxation_phonon:RelaxationPhononWorkChain"
 "mycodes.superposition_scf" = "aiida_mycodes.workflows.superposition_scf:SuperpositionSCFWorkChain"
 "mycodes.fireball_superposition_scf" = "aiida_mycodes.workflows.superposition_scf:FireballSuperpositionSCFWorkChain"
 
