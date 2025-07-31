@@ -4,6 +4,9 @@
 
 from typing import Union
 
+from aiida import orm
+from aiida.engine import Process, ProcessSpec, WorkChain
+from aiida.engine.processes import if_
 from aiida_quantumespresso.utils.mapping import prepare_process_inputs
 from aiida_quantumespresso.workflows.matdyn.base import (
     MatdynBaseWorkChain,
@@ -11,10 +14,6 @@ from aiida_quantumespresso.workflows.matdyn.base import (
 from aiida_quantumespresso.workflows.ph.base import PhBaseWorkChain
 from aiida_quantumespresso.workflows.q2r.base import Q2rBaseWorkChain
 from plumpy import WorkChainSpec
-
-from aiida import orm
-from aiida.engine import Process, ProcessSpec, WorkChain
-from aiida.engine.processes import if_
 
 __all__ = ["PhononWorkChain"]
 
@@ -24,7 +23,7 @@ class PhononWorkChain(WorkChain, Process):
     Class for running a high-level phonon workflow.
 
     This class orchestrates sub-processes to perform phonon calculations, specifically launching
-    and handling outputs of `PhBaseWorkChain`, `Q2rBaseWorkChain`, and `MatdynBaseWorkChain`.
+    and handling outputs of `PhBaseWorkChain`, `Q2rBaseWorkChain`, and 2*`MatdynBaseWorkChain` for e.g. path and mesh.
     The `PhononWorkChain` determines the execution sequence of sub-processes, manages dependencies
     between them, and defines a structured workflow for phonon simulations.
     """
