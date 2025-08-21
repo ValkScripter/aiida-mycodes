@@ -76,7 +76,7 @@ def scale_structure(
     the a, b, and c lattice vectors (if the corresponding `scale_a`, `scale_b`, and
     `scale_c` flags are set to True).
 
-    :param structure: the input `aiida.orm.StructureData`
+    :param structure: the input Structure to scale
     :param scale_factor: the scaling factor
     :param scale_a: flag to scale the a lattice vector
     :param scale_b: flag to scale the b lattice vector
@@ -186,11 +186,15 @@ def superposition(
     label = f"{structure_top.label}_ON_{structure_bot.label}_superposition_fix_{fix:.2f}_distance_{distance:.2f}A"
 
     strain_bot = (
-        np.nanmean(strained_bot.cell[:2, :2] / ase_bot.cell[:2, :2])
+        np.mean(
+            strained_bot.cell.cellpar()[:2] / ase_bot.cell.cellpar()[:2]
+        )
         - 1.0
     )
     strain_top = (
-        np.nanmean(strained_top.cell[:2, :2] / ase_top.cell[:2, :2])
+        np.mean(
+            strained_top.cell.cellpar()[:2] / ase_top.cell.cellpar()[:2]
+        )
         - 1.0
     )
 
