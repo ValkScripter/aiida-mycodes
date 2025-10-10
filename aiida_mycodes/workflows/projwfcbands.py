@@ -300,7 +300,7 @@ class MyProjwfcBandsWorkChain(ProtocolMixin, WorkChain):
         )
         projwfc = ProjwfcBaseWorkChain.get_builder_from_protocol(
             projwfc_code,
-            protocol=protocol,
+            # protocol=protocol,
             overrides=inputs.get("projwfc", None),
             # **kwargs,
         )
