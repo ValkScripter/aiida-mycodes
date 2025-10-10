@@ -1,13 +1,27 @@
-"""Workchain to relax the cell of a structure using the Birch-Murnaghan equation of state."""
+"""Workchain to relax the cell of a structure using the Birch-Murnaghan equation of state.
+The workflow will launch relaxations on randomly strained structures and fit E(V) BM law to get the optimal volume.
+The optimal balance is then calculated depending on the number of dimensions along which the structure is strained.
+"""
+
+from typing import Union
 
 from aiida_quantumespresso.calculations.functions.create_kpoints_from_distance import (
     create_kpoints_from_distance,
 )
-from aiida_quantumespresso.workflows.pw.base import PwBaseWorkChain
+from aiida_quantumespresso.utils.mapping import prepare_process_inputs
+from aiida_quantumespresso.workflows.pw.relax import PwRelaxWorkChain
 import numpy as np
+from plumpy import WorkChainSpec
 
 from aiida import orm
-from aiida.engine import ToContext, WorkChain, calcfunction
+from aiida.common import AttributeDict
+from aiida.engine import (
+    Process,
+    ProcessSpec,
+    ToContext,
+    WorkChain,
+    calcfunction,
+)
 
 from ..calculations.birch_murnaghan_fit import (
     birch_murnaghan_fit_bayesian,
@@ -32,7 +46,7 @@ def extract_volumes_energies(*results_dicts):
     }
 
 
-class BirchMurnaghanRelaxWorkChain(WorkChain):
+class BirchMurnaghanRelaxWorkChain(WorkChain, Process):
     """
     Workchain to relax the cell of a structure using the Birch-Murnaghan equation of state.
 
@@ -66,22 +80,21 @@ class BirchMurnaghanRelaxWorkChain(WorkChain):
     3. Compute the energy of each scaled structure using SCF PwBaseWorkChain with the same number of kpoints
     4. Extract the volumes and energies from the SCF output_parameters
     5. Fit the Birch-Murnaghan equation of state to the volumes and energies
-    6. Return the relaxed structure, the volumes, the energies and the fit results
+    6. Get the optimal scale factor and generate the accordingly scaled_structure
+    7. Perform a relaxation of the structure and return it with the volumes, the energies and the fit results
     """
 
     @classmethod
-    def define(cls, spec):
+    def define(cls, spec: Union[WorkChainSpec, ProcessSpec]):
         super().define(spec)
-        spec.input(
-            "structure",
-            valid_type=orm.StructureData,
-            help="The input structure.",
-        )
-        spec.input(
-            "scale_std",
-            valid_type=orm.Float,
-            default=lambda: orm.Float(0.02),
-            help="The standard deviation to generate the scale factors with a normal law (1.0, scale_std).",
+
+        spec.expose_inputs(
+            scale_structure,
+            exclude=("scale_factor",),
+            namespace_options={
+                "help": "Inputs for scaling the structure",
+                "required": True,
+            },
         )
         spec.input(
             "nb_scale",
@@ -90,25 +103,10 @@ class BirchMurnaghanRelaxWorkChain(WorkChain):
             help="The number of scale factors to generate.",
         )
         spec.input(
-            "scale_a",
-            valid_type=orm.Bool,
-            default=lambda: orm.Bool(True),
-            required=True,
-            help="Whether to scale the lattice parameter a.",
-        )
-        spec.input(
-            "scale_b",
-            valid_type=orm.Bool,
-            default=lambda: orm.Bool(True),
-            required=True,
-            help="Whether to scale the lattice parameter b.",
-        )
-        spec.input(
-            "scale_c",
-            valid_type=orm.Bool,
-            default=lambda: orm.Bool(True),
-            required=True,
-            help="Whether to scale the lattice parameter c.",
+            "scale_std",
+            valid_type=orm.Float,
+            default=lambda: orm.Float(0.02),
+            help="The standard deviation to generate the scale factors with a normal law (1.0, scale_std).",
         )
         spec.input(
             "prior_means",
@@ -118,32 +116,15 @@ class BirchMurnaghanRelaxWorkChain(WorkChain):
             help="The prior means for the pymc bayesian analysis to fit \
                 the Birch-Murnaghan equation of state [E0, V0, B0, Bp, sigma].",
         )
-        spec.input(
-            "pw_code",
-            valid_type=orm.Code,
-            help="The code for the SCF PwBaseWorkChain.",
-        )
-        spec.input(
-            "scf_options",
-            valid_type=orm.Dict,
-            help="The options for the SCF PwBaseWorkChain.",
-        )
-        spec.input(
-            "scf_overrides",
-            valid_type=orm.Dict,
-            help="The overrides for the SCF PwBaseWorkChain.",
-        )
-        spec.input(
-            "kpoints_distance",
-            valid_type=orm.Float,
-            help="The distance between kpoints in the SCF PwBaseWorkChain \
-                to create the KpointsData used for all SCF calculations.",
-        )
-        spec.input(
-            "protocol",
-            valid_type=orm.Str,
-            default=lambda: orm.Str("moderate"),
-            help="The protocol to use for the SCF PwBaseWorkChain.",
+        spec.expose_inputs(
+            PwRelaxWorkChain,
+            exclude=("structure",),
+            namespace="relax",
+            namespace_options={
+                "help": "Inputs for PwRelaxWorkChain. \
+If kpoints_distance is given it will be transformed into fixed kpoints grid.",
+                "required": True,
+            },
         )
         spec.input(
             "clean_workdir",
@@ -154,12 +135,14 @@ class BirchMurnaghanRelaxWorkChain(WorkChain):
         spec.outline(
             cls.generate_scale_factors,
             cls.scale_structure,
-            cls.run_scf_parallel,
+            cls.run_relax_parallel,
             cls.inspect_all,
             cls.extract_volumes_energies,
             cls.fit_birch_murnaghan,
+            cls.get_optimal_balance,
+            cls.final_relaxation,
+            cls.inspect_final_relaxation,
             cls.return_results,
-            cls.on_termination,
         )
         spec.output(
             "relaxed_structure",
@@ -190,8 +173,13 @@ class BirchMurnaghanRelaxWorkChain(WorkChain):
         # Exit codes
         spec.exit_code(
             401,
-            "ERROR_SCF_FAILED",
-            message="One of the SCF calculations failed",
+            "ERROR_RELAX_FAILED",
+            message="One of the relaxations failed",
+        )
+        spec.exit_code(
+            402,
+            "ERROR_FINAL_RELAX_FAILED",
+            message="The final relaxation failed",
         )
 
     def generate_scale_factors(self):
@@ -204,17 +192,13 @@ class BirchMurnaghanRelaxWorkChain(WorkChain):
 
     def scale_structure(self):
         """Scale the input structure by each factor."""
-        structure = self.inputs.structure
+        inputs = self.exposed_inputs(scale_structure)
         scale_factors = self.ctx.scale_factors
         scaled_structures = []
         for scale_factor in scale_factors:
-            scaled_structure = scale_structure(
-                structure=structure,
-                scale_factor=orm.Float(scale_factor),
-                scale_a=self.inputs.scale_a,
-                scale_b=self.inputs.scale_b,
-                scale_c=self.inputs.scale_c,
-            )
+            inputs["scale_factor"] = scale_factor
+            inputs = prepare_process_inputs(scale_structure, inputs)
+            scaled_structure = scale_structure(**inputs)
             scaled_structures.append(scaled_structure)
         self.ctx.scaled_structures = scaled_structures
         self.report(
@@ -222,41 +206,39 @@ class BirchMurnaghanRelaxWorkChain(WorkChain):
             + ", ".join(map(lambda s: f"<{s.pk}>", scaled_structures))
         )
 
-    def run_scf_parallel(self):
-        """Run the SCF PwBaseWorkChain for each scaled structure."""
+    def run_relax_parallel(self):
+        """Run the PwRelaxWorkChain for each scaled structure."""
+        inputs = AttributeDict(
+            self.exposed_inputs(PwRelaxWorkChain, "relax")
+        )
+
+        if inputs.base.kpoints_distance is not None:
+            self.ctx.kpts = create_kpoints_from_distance(
+                structure=self.inputs.structure,
+                distance=inputs.base.kpoints_distance,
+                force_parity=False,
+            )
+        else:
+            self.ctx.kpts = inputs.base.kpoints
+        inputs["base"]["kpoints"] = self.ctx.kpts
+        inputs["base"].pop("kpoints_distance")
+
         scaled_structures = self.ctx.scaled_structures
-        pw_code = self.inputs.pw_code
-        scf_options = self.inputs.scf_options.get_dict()
-        scf_overrides = self.inputs.scf_overrides.get_dict()
-        kpoints_distance = self.inputs.kpoints_distance.value
-        protocol = self.inputs.protocol.value
-
-        scf_builder = PwBaseWorkChain.get_builder_from_protocol(
-            code=pw_code,
-            structure=self.inputs.structure,
-            protocol=protocol,
-            options=scf_options,
-            overrides=scf_overrides,
-        )
-
-        kpts = create_kpoints_from_distance(
-            structure=self.inputs.structure,
-            distance=kpoints_distance,
-            force_parity=False,
-        )
-
-        scf_builder.pop("kpoints_distance")
-        scf_builder.kpoints = kpts
 
         futures = {}
         # pylint: disable=no-member
         for i, scaled_structure in enumerate(scaled_structures):
-            scf_builder.pw.structure = scaled_structure
-            scf_workchain = self.submit(scf_builder)
-            futures[f"scf_{i}"] = scf_workchain
-            self.report(
-                f"launched PwBaseWorkChain<{scf_workchain.pk}> for structure {i}"
+            inputs["structure"] = scaled_structure
+            relax_inputs = prepare_process_inputs(
+                PwRelaxWorkChain, inputs
             )
+            relax_workchain = self.submit(
+                PwRelaxWorkChain, **relax_inputs
+            )
+            self.report(
+                f"launched PwRelaxWorkChain<{relax_workchain.pk}> for structure {i}"
+            )
+            futures[f"relax_{i}"] = relax_workchain
         # pylint: enable=no-member
 
         return ToContext(**futures)
@@ -264,26 +246,26 @@ class BirchMurnaghanRelaxWorkChain(WorkChain):
     # pylint: disable=inconsistent-return-statements, no-member
     def inspect_all(self):
         """
-        Verify that all SCF calculations finished successfully.
+        Verify that all relaxations finished successfully.
         """
-
         for i in range(self.inputs.nb_scale.value):
-            scf_workchain = self.ctx[f"scf_{i}"]
-            if not scf_workchain.is_finished_ok:
+            relax_workchain = self.ctx[f"relax_{i}"]
+            if not relax_workchain.is_finished_ok:
                 self.report(
-                    f"SCF PwBaseWorkChain<{scf_workchain.pk}> failed with exit status {scf_workchain.exit_status}"
+                    f"PwRelaxWorkChain<{relax_workchain.pk}> failed with exit status {relax_workchain.exit_status}"
                 )
-                return self.exit_codes.ERROR_SCF_FAILED
-        self.report("All SCF calculations finished successfully")
+                return self.exit_codes.ERROR_RELAX_FAILED
+        self.report("All relaxations finished successfully")
 
     def extract_volumes_energies(self):
         """Extract the volumes and energies from the SCF output_parameters."""
-        scf_workchains = [
-            self.ctx[f"scf_{i}"]
+        relax_workchains = [
+            self.ctx[f"relax_{i}"]
             for i in range(self.inputs.nb_scale.value)
         ]
         results_dicts = [
-            scf.outputs.output_parameters for scf in scf_workchains
+            relax_wc.outputs.output_parameters
+            for relax_wc in relax_workchains
         ]
         volumes_energies = extract_volumes_energies(*results_dicts)
         self.ctx.volumes = volumes_energies["volumes"]
@@ -306,8 +288,8 @@ class BirchMurnaghanRelaxWorkChain(WorkChain):
             f"Fitted Birch-Murnaghan equation of state: {fit_results['popt'].get_dict()}"
         )
 
-    def return_results(self):
-        """Return the relaxed structure, the volumes, the energies and the fit results."""
+    def get_optimal_balance(self):
+        """Calculates the optimal balance for minimal energy depending on the number of strained directions."""
         V0 = self.ctx.fit_results["popt"].get_dict()["V0"]
         V = self.inputs.structure.get_ase().get_volume()
         n = sum(
@@ -318,12 +300,49 @@ class BirchMurnaghanRelaxWorkChain(WorkChain):
             ]
         )
         balance = (V0 / V) ** (1.0 / n)
-        relaxed_structure = scale_structure(
+        self.ctx.optimal_balance = balance
+        self.report(
+            f"Calculated an optimal strain factor of {(balance-1.0)*100:.3f} %."
+        )
+
+    def final_relaxation(self):
+        """Launches the relaxation of the optimally strained structure"""
+        scaled_structure = scale_structure(
             structure=self.inputs.structure,
-            scale_factor=orm.Float(balance),
+            scale_factor=orm.Float(self.ctx.optimal_balance),
             scale_a=self.inputs.scale_a,
             scale_b=self.inputs.scale_b,
             scale_c=self.inputs.scale_c,
+        )
+
+        inputs = AttributeDict(
+            self.exposed_inputs(PwRelaxWorkChain, "relax")
+        )
+        inputs["structure"] = scaled_structure
+        inputs.base.kpoints = self.ctx.kpts
+        relax_inputs = prepare_process_inputs(PwRelaxWorkChain, inputs)
+        future = self.submit(PwRelaxWorkChain, **relax_inputs)
+        self.report(
+            f"Submitted final PwRelaxWorkChain<{future.pk}> \
+with cell params: {scaled_structure.get_ase().cell.cellpar()}."
+        )
+        self.to_context(final_relaxation=future)
+
+    def inspect_final_relaxation(self):
+        """Verify that the final relaxation finished successfully."""
+        workchain = self.ctx.final_relaxation
+        if not workchain.is_finished_ok:
+            self.report(
+                f"Final relaxation failed with exit status {workchain.exit_status}."
+            )
+            return self.exit_codes.ERROR_FINAL_RELAX_FAILED
+        self.report("Final relaxation successful.")
+        return None
+
+    def return_results(self):
+        """Return the relaxed structure, the volumes, the energies and the fit results."""
+        relaxed_structure = (
+            self.ctx.final_relaxation.outputs.output_structure
         )
         self.out("relaxed_structure", relaxed_structure)
         self.out("volumes", self.ctx.volumes)
@@ -331,24 +350,40 @@ class BirchMurnaghanRelaxWorkChain(WorkChain):
         self.out("popt", self.ctx.fit_results["popt"])
         self.out("perr", self.ctx.fit_results["perr"])
 
-    def on_termination(self):
+    def on_terminated(self):
         """Clean the working directories of all child calculations if ``clean_workdir=True`` in the inputs."""
+        super().on_terminated()
 
         if self.inputs.clean_workdir.value is False:
             self.report("remote folders will not be cleaned")
             return
 
-        cleaned_calcs = []
-
-        for called_descendant in self.node.called_descendants:
-            if isinstance(called_descendant, orm.CalcJobNode):
-                try:
-                    called_descendant.outputs.remote_folder._clean()  # pylint: disable=protected-access
-                    cleaned_calcs.append(called_descendant.pk)
-                except (OSError, KeyError):
-                    pass
+        cleaned_calcs = clean_workchain_calcs(self.node)
 
         if cleaned_calcs:
             self.report(
                 f"cleaned remote folders of calculations: {' '.join(map(str, cleaned_calcs))}"
             )
+
+
+def clean_calcjob_remote(node):
+    """Clean the remote directory of a ``CalcJobNode``."""
+    cleaned = False
+    try:
+        node.outputs.remote_folder._clean()  # pylint: disable=protected-access
+        cleaned = True
+    except (OSError, KeyError):
+        pass
+    return cleaned
+
+
+def clean_workchain_calcs(workchain):
+    """Clean all remote directories of a workchain's descendant calculations."""
+    cleaned_calcs = []
+
+    for called_descendant in workchain.called_descendants:
+        if isinstance(called_descendant, orm.CalcJobNode):
+            if clean_calcjob_remote(called_descendant):
+                cleaned_calcs.append(called_descendant.pk)
+
+    return cleaned_calcs

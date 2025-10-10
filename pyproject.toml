@@ -20,13 +20,14 @@ classifiers = [
     "Framework :: AiiDA"
 ]
 keywords = ["aiida", "plugin"]
-requires-python = ">=3.7"
+requires-python = ">=3.9"
 dependencies = [
-    "aiida-core>=2.5,<3",
+    "aiida-core>=2.5",
+    "aiida-fireball",
     "aiida-quantumespresso",
     "aiida-wannier90-workflows",
     "pymc",
-    "voluptuous"
+    "voluptuous",
 ]
 
 [project.urls]
@@ -160,3 +161,6 @@ extras = docs
 commands = sphinx-build -nW --keep-going -b html {posargs} docs/source docs/build/html
 commands_post = echo "open file://{toxinidir}/docs/build/html/index.html"
 """
+
+[tool.uv.sources]
+aiida-fireball = { git = "https://github.com/ValkScripter/aiida-fireball" }
