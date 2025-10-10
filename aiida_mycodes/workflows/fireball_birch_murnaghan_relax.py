@@ -1,10 +1,21 @@
 """WorkChain to relax the structure of a crystal using the Fireball code and the Birch-Murnaghan equation of state."""
 
+from typing import Union
+
 from aiida_fireball.calculations.fireball import FireballCalculation
+from aiida_quantumespresso.utils.mapping import prepare_process_inputs
 import numpy as np
+from plumpy import WorkChainSpec
 
 from aiida import orm
-from aiida.engine import ToContext, WorkChain, calcfunction
+from aiida.common import AttributeDict
+from aiida.engine import (
+    Process,
+    ProcessSpec,
+    ToContext,
+    WorkChain,
+    calcfunction,
+)
 
 from ..calculations.birch_murnaghan_fit import (
     birch_murnaghan_fit_bayesian,
@@ -23,7 +34,7 @@ def extract_volumes_energies(*results_dicts):
     energies = []
     for result_dict in results_dicts:
         volumes.append(result_dict.get_dict()["volume"])
-        energies.append(result_dict.get_dict()["total_energy"])
+        energies.append(result_dict.get_dict()["energy"])
 
     return {
         "volumes": orm.List(volumes),
@@ -31,7 +42,7 @@ def extract_volumes_energies(*results_dicts):
     }
 
 
-class FireballBirchMurnaghanRelaxWorkChain(WorkChain):
+class FireballBirchMurnaghanRelaxWorkChain(WorkChain, Process):
     """
     WorkChain to perform a relaxation of a structure using the Fireball code
     and fit the Birch-Murnaghan equation of state.
@@ -73,18 +84,16 @@ class FireballBirchMurnaghanRelaxWorkChain(WorkChain):
     """
 
     @classmethod
-    def define(cls, spec):
+    def define(cls, spec: Union[WorkChainSpec, ProcessSpec]):
         super().define(spec)
-        spec.input(
-            "structure",
-            valid_type=orm.StructureData,
-            help="The input structure.",
-        )
-        spec.input(
-            "scale_std",
-            valid_type=orm.Float,
-            default=lambda: orm.Float(0.02),
-            help="The standard deviation to generate the scale factors with a normal law (1.0, scale_std).",
+
+        spec.expose_inputs(
+            scale_structure,
+            exclude=("scale_factor",),
+            namespace_options={
+                "help": "Inputs for scaling the structure",
+                "required": True,
+            },
         )
         spec.input(
             "nb_scale",
@@ -93,25 +102,10 @@ class FireballBirchMurnaghanRelaxWorkChain(WorkChain):
             help="The number of scale factors to generate.",
         )
         spec.input(
-            "scale_a",
-            valid_type=orm.Bool,
-            default=lambda: orm.Bool(True),
-            required=True,
-            help="Whether to scale the lattice parameter a.",
-        )
-        spec.input(
-            "scale_b",
-            valid_type=orm.Bool,
-            default=lambda: orm.Bool(True),
-            required=True,
-            help="Whether to scale the lattice parameter b.",
-        )
-        spec.input(
-            "scale_c",
-            valid_type=orm.Bool,
-            default=lambda: orm.Bool(True),
-            required=True,
-            help="Whether to scale the lattice parameter c.",
+            "scale_std",
+            valid_type=orm.Float,
+            default=lambda: orm.Float(0.02),
+            help="The standard deviation to generate the scale factors with a normal law (1.0, scale_std).",
         )
         spec.input(
             "prior_means",
@@ -121,30 +115,14 @@ class FireballBirchMurnaghanRelaxWorkChain(WorkChain):
             help="The prior means for the pymc bayesian analysis to fit \
                 the Birch-Murnaghan equation of state [E0, V0, B0, Bp, sigma].",
         )
-        spec.input(
-            "fireball_code",
-            valid_type=orm.Code,
-            help="The code for the Fireball calculation.",
-        )
-        spec.input(
-            "fireball_options",
-            valid_type=orm.Dict,
-            help="The options for the Fireball calculation.",
-        )
-        spec.input(
-            "fireball_parameters",
-            valid_type=orm.Dict,
-            help="The parameters for the Fireball calculation.",
-        )
-        spec.input(
-            "kpoints_distance",
-            valid_type=orm.Float,
-            help="The distance between kpoints in the reciprocal space.",
-        )
-        spec.input(
-            "fdata_remote",
-            valid_type=orm.RemoteData,
-            help="The fdata remote folder.",
+        spec.expose_inputs(
+            FireballCalculation,
+            exclude=("structure",),
+            namespace="fireball",
+            namespace_options={
+                "help": "Inputs for the FireballCalculation",
+                "required": True,
+            },
         )
         spec.input(
             "clean_workdir",
@@ -159,8 +137,10 @@ class FireballBirchMurnaghanRelaxWorkChain(WorkChain):
             cls.inspect_all,
             cls.extract_volumes_energies,
             cls.fit_birch_murnaghan,
+            cls.get_optimal_balance,
+            cls.final_fireball,
+            cls.inspect_final_fireball,
             cls.return_results,
-            cls.on_termination,
         )
         spec.output(
             "relaxed_structure",
@@ -194,6 +174,11 @@ class FireballBirchMurnaghanRelaxWorkChain(WorkChain):
             "ERROR_FIREBALL_FAILED",
             message="One of the Fireball calculations failed",
         )
+        spec.exit_code(
+            402,
+            "ERROR_FINAL_FIREBALL_FAILED",
+            message="The final Fireball calculations failed",
+        )
 
     def generate_scale_factors(self) -> None:
         """Generate the list of scale factors."""
@@ -207,17 +192,13 @@ class FireballBirchMurnaghanRelaxWorkChain(WorkChain):
 
     def scale_structure(self):
         """Scale the input structure by each factor."""
-        structure = self.inputs.structure
+        inputs = self.exposed_inputs(scale_structure)
         scale_factors = self.ctx.scale_factors
         scaled_structures = []
         for scale_factor in scale_factors:
-            scaled_structure = scale_structure(
-                structure=structure,
-                scale_factor=orm.Float(scale_factor),
-                scale_a=self.inputs.scale_a,
-                scale_b=self.inputs.scale_b,
-                scale_c=self.inputs.scale_c,
-            )
+            inputs["scale_factor"] = scale_factor
+            inputs = prepare_process_inputs(scale_structure, inputs)
+            scaled_structure = scale_structure(**inputs)
             scaled_structures.append(scaled_structure)
         self.ctx.scaled_structures = scaled_structures
         self.report(
@@ -227,35 +208,27 @@ class FireballBirchMurnaghanRelaxWorkChain(WorkChain):
 
     def run_fireball_parallel(self) -> ToContext:
         """Run the Fireball calculation for each scaled structure."""
-        scaled_structures = self.ctx.scaled_structures
-        structure: orm.StructureData = self.inputs.structure
-        fireball_code: orm.Code = self.inputs.fireball_code
-        fireball_options: dict = self.inputs.fireball_options.get_dict()
-        fireball_parameters: dict = (
-            self.inputs.fireball_parameters.get_dict()
+        inputs = AttributeDict(
+            self.exposed_inputs(FireballCalculation, "fireball")
         )
-        fireball_fdata_remote: orm.RemoteData = self.inputs.fdata_remote
 
-        kpoints = orm.KpointsData()
-        kpoints.set_cell_from_structure(structure)
-        kpoints.set_kpoints_mesh_from_density(
-            self.inputs.kpoints_distance.value
-        )
+        scaled_structures = self.ctx.scaled_structures
 
         futures: dict = {}
+        # pylint: disable=no-member
         for i, scaled_structure in enumerate(scaled_structures):
-            builder = FireballCalculation.get_builder()
-            builder.code = fireball_code
-            builder.structure = scaled_structure
-            builder.kpoints = kpoints
-            builder.fdata_remote = fireball_fdata_remote
-            builder.parameters = orm.Dict(dict=fireball_parameters)
-            builder.metadata.options = fireball_options
-            fireball_calc = self.submit(builder)
-            futures[f"fireball_{i}"] = fireball_calc
+            inputs["structure"] = scaled_structure
+            fireball_inputs = prepare_process_inputs(
+                FireballCalculation, inputs
+            )
+            fireball_calc = self.submit(
+                FireballCalculation, **fireball_inputs
+            )
             self.report(
                 f"launched FireballCalculation<{fireball_calc.pk}> for structure {i}"
             )
+            futures[f"fireball_{i}"] = fireball_calc
+        # pylint: enable=no-member
 
         return ToContext(**futures)
 
@@ -301,8 +274,8 @@ class FireballBirchMurnaghanRelaxWorkChain(WorkChain):
             f"Fitted Birch-Murnaghan equation of state: {fit_results['popt'].get_dict()}"
         )
 
-    def return_results(self):
-        """Return the relaxed structure, the volumes, the energies and the fit results."""
+    def get_optimal_balance(self):
+        """Calculates the optimal balance for minimal energy depending on the number of strained directions."""
         V0 = self.ctx.fit_results["popt"].get_dict()["V0"]
         V = self.inputs.structure.get_ase().get_volume()
         n = sum(
@@ -313,12 +286,50 @@ class FireballBirchMurnaghanRelaxWorkChain(WorkChain):
             ]
         )
         balance = (V0 / V) ** (1.0 / n)
-        relaxed_structure = scale_structure(
+        self.ctx.optimal_balance = balance
+        self.report(
+            f"Calculated an optimal strain factor of {(balance-1.0)*100:.3f} %."
+        )
+
+    def final_fireball(self):
+        """Launches the final calculation (relaxation) of the optimally strained structure"""
+        scaled_structure = scale_structure(
             structure=self.inputs.structure,
-            scale_factor=orm.Float(balance),
+            scale_factor=orm.Float(self.ctx.optimal_balance),
             scale_a=self.inputs.scale_a,
             scale_b=self.inputs.scale_b,
             scale_c=self.inputs.scale_c,
+        )
+
+        inputs = AttributeDict(
+            self.exposed_inputs(FireballCalculation, "fireball")
+        )
+        inputs["structure"] = scaled_structure
+        relax_inputs = prepare_process_inputs(
+            FireballCalculation, inputs
+        )
+        future = self.submit(FireballCalculation, **relax_inputs)
+        self.report(
+            f"Submitted final FireballCalculation<{future.pk}> \
+with cell params: {scaled_structure.get_ase().cell.cellpar()}."
+        )
+        self.to_context(final_relaxation=future)
+
+    def inspect_final_fireball(self):
+        """Verify that the final relaxation finished successfully."""
+        workchain = self.ctx.final_relaxation
+        if not workchain.is_finished_ok:
+            self.report(
+                f"Final relaxation failed with exit status {workchain.exit_status}."
+            )
+            return self.exit_codes.ERROR_FINAL_FIREBALL_FAILED
+        self.report("Final relaxation successful.")
+        return None
+
+    def return_results(self):
+        """Return the relaxed structure, the volumes, the energies and the fit results."""
+        relaxed_structure = (
+            self.ctx.final_relaxation.outputs.output_structure
         )
         self.out("relaxed_structure", relaxed_structure)
         self.out("volumes", self.ctx.volumes)
@@ -326,24 +337,40 @@ class FireballBirchMurnaghanRelaxWorkChain(WorkChain):
         self.out("popt", self.ctx.fit_results["popt"])
         self.out("perr", self.ctx.fit_results["perr"])
 
-    def on_termination(self):
+    def on_terminated(self):
         """Clean the working directories of all child calculations if ``clean_workdir=True`` in the inputs."""
+        super().on_terminated()
 
         if self.inputs.clean_workdir.value is False:
             self.report("remote folders will not be cleaned")
             return
 
-        cleaned_calcs = []
-
-        for called_descendant in self.node.called_descendants:
-            if isinstance(called_descendant, orm.CalcJobNode):
-                try:
-                    called_descendant.outputs.remote_folder._clean()  # pylint: disable=protected-access
-                    cleaned_calcs.append(called_descendant.pk)
-                except (OSError, KeyError):
-                    pass
+        cleaned_calcs = clean_workchain_calcs(self.node)
 
         if cleaned_calcs:
             self.report(
                 f"cleaned remote folders of calculations: {' '.join(map(str, cleaned_calcs))}"
             )
+
+
+def clean_calcjob_remote(node):
+    """Clean the remote directory of a ``CalcJobNode``."""
+    cleaned = False
+    try:
+        node.outputs.remote_folder._clean()  # pylint: disable=protected-access
+        cleaned = True
+    except (OSError, KeyError):
+        pass
+    return cleaned
+
+
+def clean_workchain_calcs(workchain):
+    """Clean all remote directories of a workchain's descendant calculations."""
+    cleaned_calcs = []
+
+    for called_descendant in workchain.called_descendants:
+        if isinstance(called_descendant, orm.CalcJobNode):
+            if clean_calcjob_remote(called_descendant):
+                cleaned_calcs.append(called_descendant.pk)
+
+    return cleaned_calcs
