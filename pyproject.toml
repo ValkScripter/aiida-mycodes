@@ -164,3 +164,4 @@ commands_post = echo "open file://{toxinidir}/docs/build/html/index.html"
 
 [tool.uv.sources]
 aiida-fireball = { git = "https://github.com/ValkScripter/aiida-fireball" }
+aiida-quantumespresso = { git = "https://github.com/ValkScripter/aiida-quantumespresso", branch = "perso" }
