@@ -1,10 +1,10 @@
 default_inputs:
     clean_workdir: True
-default_protocol: moderate
+default_protocol: balanced
 protocols:
-    moderate:
-        description: 'Protocol to perform the computation at normal precision at moderate computational cost.'
-    precise:
+    balanced:
+        description: 'Protocol to perform the computation at normal precision at balanced computational cost.'
+    stringent:
         description: 'Protocol to perform the computation at high precision at higher computational cost.'
     fast:
         description: 'Protocol to perform the computation at low precision at minimal computational cost for testing purposes.'
