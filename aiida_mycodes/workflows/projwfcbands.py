@@ -302,7 +302,7 @@ class MyProjwfcBandsWorkChain(ProtocolMixin, WorkChain):
             projwfc_code,
             protocol=protocol,
             overrides=inputs.get("projwfc", None),
-            **kwargs,
+            # **kwargs,
         )
 
         scf["pw"].pop("structure", None)
