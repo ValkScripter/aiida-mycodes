@@ -4,9 +4,6 @@
 
 from typing import Union
 
-from aiida import orm
-from aiida.engine import Process, ProcessSpec, WorkChain
-from aiida.engine.processes import if_
 from aiida_quantumespresso.utils.mapping import prepare_process_inputs
 from aiida_quantumespresso.workflows.matdyn.base import (
     MatdynBaseWorkChain,
@@ -14,6 +11,10 @@ from aiida_quantumespresso.workflows.matdyn.base import (
 from aiida_quantumespresso.workflows.ph.base import PhBaseWorkChain
 from aiida_quantumespresso.workflows.q2r.base import Q2rBaseWorkChain
 from plumpy import WorkChainSpec
+
+from aiida import orm
+from aiida.engine import Process, ProcessSpec, WorkChain
+from aiida.engine.processes import if_
 
 __all__ = ["PhononWorkChain"]
 
@@ -23,7 +24,7 @@ class PhononWorkChain(WorkChain, Process):
     Class for running a high-level phonon workflow.
 
     This class orchestrates sub-processes to perform phonon calculations, specifically launching
-    and handling outputs of `PhBaseWorkChain`, `Q2rBaseWorkChain`, and 2*`MatdynBaseWorkChain` for e.g. path and mesh.
+    and handling outputs of `PhBaseWorkChain`, `Q2rBaseWorkChain`, and 3*`MatdynBaseWorkChain` for e.g. path, mesh and dos.
     The `PhononWorkChain` determines the execution sequence of sub-processes, manages dependencies
     between them, and defines a structured workflow for phonon simulations.
     """
@@ -84,6 +85,19 @@ class PhononWorkChain(WorkChain, Process):
             },
         )
 
+        spec.expose_inputs(
+            MatdynBaseWorkChain,
+            namespace="matdyn_3",
+            exclude=[
+                "matdyn.force_constants",
+                "matdyn.parent_folder",
+            ],
+            namespace_options={
+                "help": "Inputs for the third `MatdynBaseWorkChain` sub process.",
+                "required": False,
+            },
+        )
+
         spec.input(
             "clean_workdir",
             valid_type=orm.Bool,
@@ -140,6 +154,15 @@ class PhononWorkChain(WorkChain, Process):
             },
         )
 
+        spec.expose_outputs(
+            MatdynBaseWorkChain,
+            namespace="matdyn_3",
+            namespace_options={
+                "help": "Outputs of the third `MatdynBaseWorkChain` sub process.",
+                "required": False,
+            },
+        )
+
         spec.exit_code(
             401,
             "ERROR_SUB_PROCESS_FAILED_PH",
@@ -166,6 +189,12 @@ class PhononWorkChain(WorkChain, Process):
 
         spec.exit_code(
             405,
+            "ERROR_SUB_PROCESS_FAILED_MATDYN_3",
+            message="The third `MatdynBaseWorkChain` sub processes failed.",
+        )
+
+        spec.exit_code(
+            406,
             "ERROR_NO_REMOTE_PH_FOLDER_OR_PH_INPUT_SPECIFIED",
             message="Neither `remote_ph_folder` nor `ph` input was specified.",
         )
@@ -216,6 +245,16 @@ class PhononWorkChain(WorkChain, Process):
         return (
             "matdyn_2" in self.inputs
             and self.inputs["matdyn_2"] is not None
+        )
+
+    def should_run_matdyn_3(self):
+        """
+        Return whether the third `MatdynBaseWorkChain` should be run
+        based on the presence of the `matdyn_3` input namespace.
+        """
+        return (
+            "matdyn_3" in self.inputs
+            and self.inputs["matdyn_3"] is not None
         )
 
     def launch_ph(self):
@@ -284,7 +323,7 @@ class PhononWorkChain(WorkChain, Process):
 
     def launch_matdyn(self):
         """
-        Launch the `MatdynBaseWorkChain` and eventually the second one.
+        Launch the `MatdynBaseWorkChain` and eventually the second one and third one.
         """
         inputs = self.exposed_inputs(MatdynBaseWorkChain, "matdyn")
         # inputs["matdyn"]["force_constants"] = self.ctx.q2r_workchain_force_constants
@@ -300,6 +339,9 @@ class PhononWorkChain(WorkChain, Process):
 
         if self.should_run_matdyn_2():
             self.launch_matdyn_2()
+
+        if self.should_run_matdyn_3():
+            self.launch_matdyn_3()
 
     def inspect_matdyn(self):
         """
@@ -320,6 +362,9 @@ class PhononWorkChain(WorkChain, Process):
 
         if self.should_run_matdyn_2():
             self.inspect_matdyn_2()
+
+        if self.should_run_matdyn_3():
+            self.inspect_matdyn_3()
 
     def launch_matdyn_2(self):
         """
@@ -354,6 +399,40 @@ class PhononWorkChain(WorkChain, Process):
                 workchain, MatdynBaseWorkChain, namespace="matdyn_2"
             )
         )
+        self.report("Second MatdynBaseWorkChain completed")
+
+    def launch_matdyn_3(self):
+        """
+        Launch the third `MatdynBaseWorkChain`.
+        """
+        inputs = self.exposed_inputs(MatdynBaseWorkChain, "matdyn_3")
+        # inputs["matdyn"]["force_constants"] = self.ctx.q2r_workchain_force_constants
+        matdyn_inputs = prepare_process_inputs(
+            MatdynBaseWorkChain, inputs
+        )
+        matdyn_inputs["matdyn"][
+            "force_constants"
+        ] = self.ctx.q2r_workchain_force_constants
+        future = self.submit(MatdynBaseWorkChain, **matdyn_inputs)
+        self.report(f"launching third MatdynBaseWorkChain<{future.pk}>")
+        self.to_context(matdyn_3_workchain=future)
+
+    def inspect_matdyn_3(self):
+        """
+        Check that the third `MatdynBaseWorkChain` finished successfully.
+        """
+        workchain = self.ctx.matdyn_3_workchain
+        if not workchain.is_finished_ok:
+            self.report(
+                f"third MatdynBaseWorkChain failed with exit status {workchain.exit_status}"
+            )
+            return self.exit_codes.ERROR_SUB_PROCESS_FAILED_MATDYN_3
+        self.out_many(
+            self.exposed_outputs(
+                workchain, MatdynBaseWorkChain, namespace="matdyn_3"
+            )
+        )
+        self.report("Third MatdynBaseWorkChain completed")
 
     def on_terminated(self):
         """Clean the working directories of all child calculations if ``clean_workdir=True`` in the inputs."""
