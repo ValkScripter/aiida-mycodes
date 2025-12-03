@@ -20,7 +20,7 @@ classifiers = [
     "Framework :: AiiDA"
 ]
 keywords = ["aiida", "plugin"]
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 dependencies = [
     "aiida-core>=2.5",
     "aiida-fireball",
