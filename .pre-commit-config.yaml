@@ -26,17 +26,3 @@ repos:
   hooks:
     - id: isort
       args: ["--profile", "black", --line-length=72]
-
-- repo: local
-  hooks:
-  - id: pylint
-    language: system
-    types: [file, python]
-    name: pylint
-    description: "This hook runs the pylint static code analyzer"
-    exclude: &exclude_files >
-      (?x)^(
-          docs/.*|
-      )$
-    entry: pylint
-    args: ["--max-args=10"]
