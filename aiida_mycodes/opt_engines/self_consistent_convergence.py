@@ -10,72 +10,107 @@ that can be used for production calculations.
 import itertools
 import typing as ty
 
+from aiida_optimize import OptimizationWorkChain
 from aiida_optimize.engines._result_mapping import Result
 from aiida_optimize.engines.base import (
     OptimizationEngineImpl,
     OptimizationEngineWrapper,
 )
 from aiida_optimize.helpers import get_nested_result
+from decorator import decorator
 import numpy as np
+from scipy.optimize import brentq
 
 from aiida import orm
+from aiida.engine import calcfunction
 from aiida.orm.nodes.data.base import to_aiida_type
 
 __all__ = ["SelfConsistentConvergence"]
+
+ValueType = ty.Union[np.ndarray, float, int]
 
 
 class _SelfConsistentConvergenceImpl(OptimizationEngineImpl):
     """
     Implementation class for the self-consistent convergence engine.
-
-    This engine performs convergence studies on multiple input parameters in a self-consistent manner.
-    At each SCF iteration, it cycles through all parameters, converging each one while keeping the
-    others fixed at their current best values. The process continues until all parameters are converged
-    within the specified SCF threshold.
     """
 
     def __init__(
         self,
-        *,
-        input_values: ty.Dict[str, ty.List[ty.Any]],
-        tol: ty.Dict[str, float],
-        scf_thr: ty.Dict[str, float],
+        input_keys: ty.List[str],
+        input_values: ty.Dict[str, ty.List[ValueType]],
         result_key: str,
-        convergence_window: ty.Dict[str, int],
-        array_name: ty.Optional[str],
-        max_scf_iterations: int,
+        conv_tols: ty.Dict[str, float],
+        conv_windows: ty.Dict[str, int],
+        scf_thrs: ty.Dict[str, float],
+        scf_mixing: ty.Dict[str, float],
+        scf_mixing_history: ty.Dict[str, int],
+        scf_max_iterations: int,
         current_scf_iteration: int,
-        param_order: ty.List[str],
-        converged_values: ty.Dict[str, ty.Any],
-        current_indices: ty.Dict[str, int],
-        result_values: ty.Dict[str, ty.List[ty.Any]],
-        scf_history: ty.List[ty.Dict[str, ty.Any]],
-        params_converged: ty.Dict[str, bool],
-        initialized: bool,
-        logger: ty.Optional[ty.Any],
+        current_conv_indices: ty.Dict[str, int],
+        conv_results: ty.Dict[str, ty.List[ValueType]],
+        scf_histories: ty.Dict[str, ty.List[ValueType]],
+        finished_convergences: ty.Dict[str, bool],
+        key_order: ty.List[str] = [],
+        converged_inputs: ty.Dict[str, ValueType] = {},
+        finished: bool = False,
+        logger: ty.Optional[ty.Any] = None,
         result_state: ty.Optional[ty.Dict[int, Result]] = None,
     ):
-        super().__init__(logger=logger, result_state=result_state)
-        self.input_values = input_values
-        self.tol = tol
-        self.scf_thr = scf_thr
-        self.result_key = result_key
-        self.array_name = array_name
-        self.convergence_window = convergence_window
-        self.max_scf_iterations = max_scf_iterations
-        self.current_scf_iteration = current_scf_iteration
-        self.param_order = param_order
-        self.converged_values = converged_values
-        self.current_indices = current_indices
-        self.result_values = result_values
-        self.scf_history = scf_history
-        self.params_converged = params_converged
-        self.initialized = initialized
+        """
+        Initialize the self-consistent convergence engine.
 
+        :param input_keys: List of input parameter keys to be converged.
+        :param input_values: Dictionary mapping input parameter keys to lists of values to test.
+        :param result_key: Key to extract the result value from evaluation outputs.
+        :param conv_tols: Dictionary mapping input parameter keys to convergence tolerances on the results.
+        :param conv_windows: Dictionary mapping input parameter keys to convergence window sizes.
+        :param scf_thrs: Dictionary mapping input parameter keys to SCF convergence thresholds on the input parameters.
+        :param scf_mixing: Dictionary mapping input parameter keys to SCF mixing parameters.
+        :param scf_mixing_history: Dictionary mapping input parameter keys to SCF mixing history sizes.
+        :param scf_max_iterations: Maximum number of SCF iterations allowed.
+        :param current_scf_iteration: Current SCF iteration count.
+        :param current_conv_indices: Dictionary mapping input parameter keys to their current convergence study indices.
+        :param conv_results: Dictionary mapping input parameter keys to lists of their convergence study results.
+        :param scf_histories: Dictionary mapping input parameter keys to the history of their values during the SCF cycle.
+        :param finished_convergences: Dictionary mapping input parameter keys to booleans indicating whether their convergence has finished (successfully or not).
+        :param key_order: Optional list defining the order of submission of input parameters for evaluations, used to retrieve results in the correct order.
+        :param converged_inputs: Dictionary mapping input parameter keys to their converged values if already found within the SCF cycle.
+        :param finished: Boolean indicating whether the optimization is finished.
+        :param logger: Optional logger instance for reporting.
+        :param result_state: Optional serialized state of the result mapping.
+        """
+        super().__init__(logger=logger, result_state=result_state)
+        self.input_keys = input_keys
+        self.input_values = input_values
+        self.result_key = result_key
+        self.conv_tols = conv_tols
+        self.conv_windows = conv_windows
+        self.scf_thrs = scf_thrs
+        self.scf_mixing = scf_mixing
+        self.scf_mixing_history = scf_mixing_history
+        self.scf_max_iterations = scf_max_iterations
+        self.current_scf_iteration = current_scf_iteration
+        self.current_conv_indices = current_conv_indices
+        self.conv_results = conv_results
+        self.scf_histories = scf_histories
+        self.finished_convergences = finished_convergences
+        self.key_order = key_order
+        self.converged_inputs = converged_inputs
+        self.finished = finished
+        self._logger: OptimizationWorkChain
+
+    # Override abstract properties and methods from base class
     @property
     def _state(self) -> ty.Dict[str, ty.Any]:
         """
-        Generate the engine state, excluding logger and result_mapping.
+        Generate the engine state, including variables
+            input_keys, input_values, result_key, conv_tols, conv_windows,
+            scf_thrs, scf_mixing, scf_mixing_history, scf_max_iterations,
+            current_scf_iteration, current_conv_indices, conv_results,
+            scf_histories, next_submit, next_update, finished
+        and excluding variables
+            logger
         """
         return {
             k: v
@@ -83,528 +118,335 @@ class _SelfConsistentConvergenceImpl(OptimizationEngineImpl):
             if k not in ["_result_mapping", "_logger"]
         }
 
-    def _all_params_converged(self) -> bool:
-        """Check if all parameters in the current SCF cycle are converged."""
-        return all(self.params_converged.values())
-
-    def _convert_result_to_native(self, result: ty.Any) -> ty.Any:
-        """Convert AiiDA result to python/numpy object."""
-        if isinstance(result, orm.ArrayData):
-            return result.get_array(self.array_name)
-        elif isinstance(result, (orm.Float, orm.Int)):
-            return result.value
-        return result
-
-    def _get_result_window(self, param: str) -> ty.List[ty.Any]:
-        """
-        Create a list of results corresponding to the current convergence window
-        for a specific parameter.
-        """
-        window_size = self.convergence_window[param]
-        result_window = self.result_values[param][-window_size:]
-        return [
-            self._convert_result_to_native(r) for r in result_window
-        ]
-
-    def _calculate_distance_triangle(
-        self, param: str
-    ) -> ty.List[ty.List[ty.Any]]:
-        """
-        Calculate the pair-wise distance between entries in the convergence window
-        for a specific parameter.
-        """
-        result_window = self._get_result_window(param)
-        distance_triangle = [
-            [
-                np.linalg.norm(result_window[i] - result_window[j])
-                for j in range(i + 1, len(result_window))
-            ]
-            for i in range(len(result_window) - 1)
-        ]
-        return distance_triangle
-
-    def _num_new_iters(self, param: str) -> int:
-        """
-        Determine the minimum number of additional outputs needed to potentially
-        converge the given parameter.
-        """
-        window_size = self.convergence_window[param]
-        if len(self.result_values[param]) < window_size:
-            return window_size - len(self.result_values[param])
-
-        distance_triangle = self._calculate_distance_triangle(param)
-        num_new_iters = 0
-        for i, row in enumerate(distance_triangle):
-            if np.any(np.array(row) > self.tol[param]):
-                num_new_iters = i + 1
-
-        # Check if we can get enough new iterations
-        if self.current_indices[param] + num_new_iters > len(
-            self.input_values[param]
-        ):
-            return -1
-
-        return num_new_iters
-
-    def _is_param_converged(self, param: str) -> bool:
-        """
-        Check if a specific parameter has converged by calculating distances
-        within the convergence window.
-        """
-        window_size = self.convergence_window[param]
-        if len(self.result_values[param]) < window_size:
-            return False
-
-        distance_triangle = self._calculate_distance_triangle(param)
-        distances = list(itertools.chain(*distance_triangle))
-
-        return bool(np.max(distances) < self.tol[param])
-
-    def _is_scf_converged(self) -> bool:
-        """
-        Check if self-consistency is reached by comparing converged values
-        between consecutive SCF iterations.
-        """
-        if self.current_scf_iteration < 1 or len(self.scf_history) < 2:
-            return False
-
-        prev_values = self.scf_history[-2]
-        curr_values = self.scf_history[-1]
-
-        for param in self.param_order:
-            prev_val = self._convert_result_to_native(
-                prev_values[param]
-            )
-            curr_val = self._convert_result_to_native(
-                curr_values[param]
-            )
-
-            distance = np.linalg.norm(prev_val - curr_val)
-            if distance >= self.scf_thr[param]:
-                return False
-
-        return True
-
-    @property
-    def is_converged(self) -> bool:
-        """
-        Check if the self-consistent convergence cycle is complete.
-        """
-        if not self.initialized:
-            return False
-
-        return self._is_scf_converged()
-
     @property
     def is_finished(self) -> bool:
         """
-        Check if the optimization is finished, either by convergence or
-        by reaching maximum iterations.
+        Returns true if the optimization is finished.
         """
-        if not self.initialized:
-            return False
+        return self.finished
 
-        # Reached maximum SCF iterations
-        if self.current_scf_iteration >= self.max_scf_iterations:
-            self._logger.logger.warning(
-                f"Maximum SCF iterations ({self.max_scf_iterations}) reached without convergence."
-            )
-            return True
-
-        # Check if we've exhausted input values for any parameter
-        for param in self.param_order:
-            if len(self.result_values[param]) >= len(
-                self.input_values[param]
-            ):
-                if not self._is_param_converged(param):
-                    self._logger.logger.warning(
-                        f"Exhausted all input values for parameter '{param}' without convergence."
-                    )
-                    return True
-
-        return self.is_converged
-
-    @property
-    def is_finished_ok(self) -> bool:
-        """Check if finished successfully with convergence."""
-        return self.is_finished and self.is_converged
-
-    def _create_inputs(self) -> ty.List[ty.Dict[str, orm.Node]]:
-        """
-        Create the inputs for the evaluation function.
-        Converges all parameters in parallel, each varying independently
-        while others are fixed at their current best values.
-        """
-        if not self.initialized:
-            # Initialize: fill convergence window for all parameters
-            self.initialized = True
-            # Use maximum window size to ensure all parameters can be checked
-            num_new_iters = max(self.convergence_window.values())
-            self._logger.logger.info(
-                f"Initializing self-consistent convergence for parameters: {', '.join(self.param_order)}"
-            )
-            self._logger.logger.info(
-                f"Convergence windows: {self.convergence_window}"
-            )
-            self._logger.logger.info(f"Tolerances: {self.tol}")
-            self._logger.logger.info(f"SCF thresholds: {self.scf_thr}")
-        else:
-            # Check if all parameters converged - move to next SCF iteration
-            if self._all_params_converged():
-                # Store SCF history
-                scf_snapshot = {}
-                for param in self.param_order:
-                    if self.result_values[param]:
-                        window_size = self.convergence_window[param]
-                        opt_index = (
-                            len(self.result_values[param])
-                            - window_size // 2
-                            - 1
-                        )
-                        scf_snapshot[param] = self.result_values[param][
-                            opt_index
-                        ]
-                self.scf_history.append(scf_snapshot)
-
-                self._logger.logger.info(
-                    f"SCF iteration {self.current_scf_iteration} completed. All parameters converged."
-                )
-
-                # Log converged values for this iteration
-                for param in self.param_order:
-                    val = self.converged_values[param]
-                    self._logger.logger.info(f"  {param}: {val}")
-
-                # Check SCF convergence
-                if self._is_scf_converged():
-                    self._logger.logger.info(
-                        "Self-consistent convergence achieved! SCF cycle converged."
-                    )
-                    return []  # Converged, no more inputs needed
-
-                # Start new SCF iteration
-                self.current_scf_iteration += 1
-                self._logger.logger.info(
-                    f"Starting SCF iteration {self.current_scf_iteration}"
-                )
-
-                # Log SCF distances if history available
-                if len(self.scf_history) >= 2:
-                    prev_values = self.scf_history[-2]
-                    curr_values = self.scf_history[-1]
-                    self._logger.logger.info("  SCF distances:")
-                    for param in self.param_order:
-                        prev_val = self._convert_result_to_native(
-                            prev_values[param]
-                        )
-                        curr_val = self._convert_result_to_native(
-                            curr_values[param]
-                        )
-                        distance = np.linalg.norm(prev_val - curr_val)
-                        self._logger.logger.info(
-                            f"    {param}: {distance:.6e} (threshold: {self.scf_thr[param]:.6e})"
-                        )
-
-                for param in self.param_order:
-                    self.params_converged[param] = False
-                    self.result_values[param] = []
-
-                num_new_iters = max(self.convergence_window.values())
-            else:
-                # Continue convergence for unconverged parameters
-                num_new_iters = 1
-
-                # Log progress of unconverged parameters
-                unconverged = [
-                    p for p, c in self.params_converged.items() if not c
-                ]
-                if unconverged:
-                    self._logger.logger.info(
-                        f"SCF iteration {self.current_scf_iteration}: Continuing convergence for {', '.join(unconverged)}"
-                    )
-
-        # Create inputs for all unconverged parameters
-        inputs = []
-
-        for param in self.param_order:
-            if self.params_converged[param]:
-                continue  # Skip already converged parameters
-
-            # Determine how many iterations needed for this parameter
-            param_iters = self._num_new_iters(param)
-
-            if param_iters == -1:
-                # Cannot converge with remaining inputs
-                self._logger.logger.warning(
-                    f"Cannot converge parameter '{param}' with available input values. "
-                    f"Used {len(self.result_values[param])}/{len(self.input_values[param])} values."
-                )
-                self.params_converged[param] = (
-                    True  # Mark as converged to skip
-                )
-                continue
-
-            if param_iters == 0:
-                # Already has enough results
-                continue
-
-            # Use the smaller of param_iters or num_new_iters
-            iters_to_add = min(param_iters, num_new_iters)
-
-            start_idx = self.current_indices[param]
-            end_idx = start_idx + iters_to_add
-
-            self._logger.logger.debug(
-                f"Adding {iters_to_add} iteration(s) for parameter '{param}' "
-                f"(indices {start_idx} to {end_idx-1})"
-            )
-
-            for i in range(start_idx, end_idx):
-                input_dict = {}
-
-                # Add the varying parameter
-                input_dict[param] = to_aiida_type(
-                    self.input_values[param][i]
-                )
-
-                # Add all other parameters at their converged values
-                for other_param in self.param_order:
-                    if (
-                        other_param != param
-                        and other_param in self.converged_values
-                    ):
-                        input_dict[other_param] = to_aiida_type(
-                            self.converged_values[other_param]
-                        )
-
-                inputs.append(input_dict)
-
-            self.current_indices[param] = end_idx
-
-        return inputs
-
-    def _update(self, outputs: ty.Dict[int, ty.Any]) -> None:
-        """
-        Update the state of the engine by saving output values from
-        parallel convergence studies of all parameters.
-        """
-        # Group outputs by parameter based on which parameter was varied
-        output_keys = sorted(outputs.keys())
-
-        for key in output_keys:
-            output = outputs[key]
-            result = get_nested_result(output, self.result_key)
-
-            # Determine which parameter this output corresponds to
-            # by checking which input parameter was used
-            input_data = self._result_mapping[key].input
-
-            # Find which parameter was being varied for this calculation
-            # by identifying which parameter has a value NOT in converged_values
-            # or has a different value than the converged one
-            varied_param = None
-
-            for param in self.param_order:
-                if param not in input_data:
-                    continue
-
-                input_val = input_data[param]
-                if isinstance(input_val, (orm.Float, orm.Int)):
-                    input_val = input_val.value
-
-                # Check if this parameter was being varied
-                if param not in self.converged_values:
-                    # No converged value yet, this could be the varied parameter
-                    varied_param = param
-                    break
-                else:
-                    # Compare with converged value
-                    converged_val = self.converged_values[param]
-                    if not np.allclose(input_val, converged_val):
-                        varied_param = param
-                        break
-
-            # If all parameters match converged values, it's from the first SCF iteration
-            # In that case, determine by checking against input_values sequence
-            if varied_param is None:
-                for param in self.param_order:
-                    if (
-                        param in input_data
-                        and not self.params_converged[param]
-                    ):
-                        input_val = input_data[param]
-                        if isinstance(input_val, (orm.Float, orm.Int)):
-                            input_val = input_val.value
-
-                        # Check if this matches the next expected value
-                        expected_idx = len(self.result_values[param])
-                        if expected_idx < len(self.input_values[param]):
-                            expected_val = self.input_values[param][
-                                expected_idx
-                            ]
-                            if np.allclose(input_val, expected_val):
-                                varied_param = param
-                                break
-
-            # Store the result for the identified parameter
-            if varied_param is not None:
-                self.result_values[varied_param].append(result)
-
-        # Check convergence status for each parameter
-        for param in self.param_order:
-            if not self.params_converged[
-                param
-            ] and self._is_param_converged(param):
-                # Store converged value (use middle of convergence window)
-                window_size = self.convergence_window[param]
-                opt_index = (
-                    len(self.result_values[param])
-                    - window_size // 2
-                    - 1
-                )
-                self.converged_values[param] = (
-                    self._convert_result_to_native(
-                        self.result_values[param][opt_index]
-                    )
-                )
-                self.params_converged[param] = True
-
-                # Calculate max distance in convergence window for logging
-                distance_triangle = self._calculate_distance_triangle(
-                    param
-                )
-                distances = list(itertools.chain(*distance_triangle))
-                max_distance = np.max(distances) if distances else 0.0
-
-                self._logger.logger.info(
-                    f"Parameter '{param}' converged to {self.converged_values[param]} "
-                    f"(max distance: {max_distance:.6e}, tolerance: {self.tol[param]:.6e})"
-                )
-
-    def _get_optimal_result(
+    def _create_inputs(  # pyright: ignore[reportIncompatibleMethodOverride]
         self,
-    ) -> ty.Tuple[int, ty.Dict[str, orm.Node], ty.Dict[str, orm.Node]]:
-        """
-        Retrieve the converged input and output values for all parameters.
+    ) -> ty.List[ty.Dict[str, ty.Any]]:
+        inputs_list = []
+        self.key_order = []
 
-        Returns
-        -------
-        Tuple[int, Dict[str, orm.Node], Dict[str, orm.Node]]
-            - Index of the last result in the result mapping (always returns last index)
-            - Dictionary mapping parameter names to their converged input values (as AiiDA nodes)
-            - Dictionary mapping parameter names to their converged output values (as AiiDA nodes)
-        """
-        optimal_inputs = {}
-        optimal_outputs = {}
-
-        # Get the last SCF iteration results
-        if self.scf_history:
-            last_scf = self.scf_history[-1]
-            for param in self.param_order:
-                optimal_inputs[param] = to_aiida_type(
-                    self.converged_values[param]
+        for key in self.input_keys:
+            if self.finished_convergences[key]:
+                continue
+            elif self.is_parameter_converged(key):
+                self.finished_convergences[key] = True
+                self.converged_inputs[key] = self.input_values[key][
+                    self.current_conv_indices[key]
+                    - self.conv_windows[key]
+                ]
+                self._logger.report(
+                    f"Parameter '{key}' converged at {self.converged_inputs[key]} in SCF iteration {self.current_scf_iteration} after {len(self.conv_results[key])} evaluations."
                 )
-                optimal_outputs[param] = last_scf[param]
+                continue
+            else:
+                num_new_evals = self.num_new_evaluations(key)
+                if num_new_evals == -1:
+                    self.finished_convergences[key] = True
+                    self._logger.report(
+                        f"Parameter '{key}' could not converge within the provided input values in SCF iteration {self.current_scf_iteration}. Marking as finished."
+                    )
+                    continue
+                start_idx = self.current_conv_indices[key]
+                end_idx = start_idx + num_new_evals
+                current_inputs = {
+                    k: to_aiida_type(self.scf_histories[k][-1])
+                    for k in self.input_keys
+                }  # Use last SCF history values as base inputs
+                for val in self.input_values[key][start_idx:end_idx]:
+                    new_inputs = current_inputs.copy()
+                    new_inputs[key] = to_aiida_type(
+                        val  # Update only the current key with new value and keep others fixed
+                    )
+                    inputs_list.append(new_inputs)
+                    self.key_order.append(key)
+                self.current_conv_indices[key] += num_new_evals
+                self._logger.report(
+                    f"Parameter '{key}': launching {num_new_evals} new evaluations for values {', '.join(str(v) for v in self.input_values[key][start_idx:end_idx])}."
+                )
 
-        # Return the index of the last evaluation in the result mapping
-        # For multi-parameter optimization, we return the last index as the "optimal" one
-        opt_index = (
-            len(self._result_mapping) - 1
-            if len(self._result_mapping) > 0
-            else 0
+        self._logger.report(
+            f"Launching {len(inputs_list)} new evaluations for SCF iteration {self.current_scf_iteration}."
         )
 
-        return (opt_index, optimal_inputs, optimal_outputs)
+        if (
+            not self.scf_converged
+            and self.all_parameters_converged
+            and len(inputs_list) == 0
+        ):
+            self._logger.report(
+                f"SCF cycle {self.current_scf_iteration} converged ..."
+            )
+            self.new_scf_iteration()
+            self._logger.report(
+                f"Starting SCF iteration {self.current_scf_iteration}:"
+            )
+            for key in self.input_keys:
+                self._logger.report(
+                    f"  Parameter '{key}':  \tcurrent value \t{self.scf_histories[key][-1]}"
+                )
+
+        self.check_finished()
+        if self.finished and len(inputs_list) == 0:
+            # If finished launch a single evaluation with the converged inputs to get final results
+            self._logger.report(
+                "Optimization finished, launching final evaluation with converged inputs:"
+            )
+            current_inputs = {
+                k: to_aiida_type(self.scf_histories[k][-1])
+                for k in self.input_keys
+            }  # Use last SCF history values as base inputs
+            for key in current_inputs:
+                self._logger.report(
+                    f"  Parameter '{key}':  \tvalue \t{current_inputs[key].value}"
+                )
+            return [current_inputs]
+
+        return inputs_list
+
+    def _update(
+        self, outputs: ty.Dict[int, ty.Dict[str, orm.Node]]
+    ) -> None:
+        if self.finished:
+            # If finished, just retrieve the final results
+            pass
+        else:
+            results = [
+                float(get_nested_result(output, self.result_key).value)
+                for _, output in sorted(outputs.items())
+            ]
+            for param, result in zip(self.key_order, results):
+                self.conv_results[param].append(result)
+
+    def _get_optimal_result(self) -> ty.Tuple[int, ty.Any, ty.Any]:
+        # get last result
+        opt_index = max(self._result_mapping.keys())
+        opt_inputs = self._result_mapping[opt_index].input
+
+        @calcfunction
+        def merge_results(**kwargs) -> orm.Dict:
+            return orm.Dict(kwargs)
+
+        opt_input = merge_results(**opt_inputs)
+        opt_output = get_nested_result(
+            self._result_mapping[opt_index].output, self.result_key
+        )
+        return (opt_index, opt_input, opt_output)
+
+    # TODO: implement additional methods specific to self-consistent convergence engine
+
+    def get_distances(self, key: str) -> ty.List[float]:
+        """
+        Get the distances between the last values in the convergence window for a specific parameter.
+        """
+        window = self.conv_windows[key]
+        values = self.conv_results[key][-window:]
+        dist_triangle = map(
+            lambda pair: float(
+                np.linalg.norm(np.array(pair[0]) - np.array(pair[1]))
+            ),
+            itertools.combinations(values, 2),
+        )
+        return list(dist_triangle)
+
+    def get_distance_triangle(
+        self, key: str
+    ) -> ty.List[ty.List[float]]:
+        """
+        Get the pair-wise distance triangle for the last values in the convergence window for a specific parameter.
+        """
+        window = self.conv_windows[key]
+        values = self.conv_results[key][-window:]
+        distance_triangle = [
+            [
+                float(
+                    np.linalg.norm(
+                        np.array(values[i]) - np.array(values[j])
+                    )
+                )
+                for j in range(i + 1, len(values))
+            ]
+            for i in range(len(values) - 1)
+        ]
+        return distance_triangle
+
+    def is_parameter_converged(self, key: str) -> bool:
+        """
+        Check if a specific parameter has converged based on the convergence criteria and distance triangle.
+        """
+        distances = self.get_distances(key)
+        if not distances:
+            return False
+        tol = self.conv_tols[key]
+        return np.max(distances) < tol
+
+    @property
+    def all_parameters_converged(self) -> bool:
+        """
+        Check if all parameters have converged.
+        """
+        return all(
+            self.is_parameter_converged(key) for key in self.input_keys
+        )
+
+    @property
+    def scf_converged(self) -> bool:
+        """
+        Check if the SCF cycle has converged based on the SCF thresholds.
+        """
+        for key in self.input_keys:
+            history = self.scf_histories[key]
+            if len(history) < 2:
+                return False
+            diff = float(
+                np.linalg.norm(
+                    np.array(history[-1]) - np.array(history[-2])
+                )
+            )
+            if diff >= self.scf_thrs[key]:
+                return False
+        return True
+
+    def generate_mixed_inputs(
+        self, new_inputs: ty.Dict[str, ValueType]
+    ) -> ty.Dict[str, ValueType]:
+        """
+        Generate mixed inputs for the SCF cycle using mixing parameters and history and a damping scheme.
+        """
+        mixed_inputs = {}
+        for key in self.input_keys:
+            history = self.scf_histories[key]
+            mix_param = self.scf_mixing[key]
+            mix_history_size = self.scf_mixing_history[key]
+            relevant_history = history[-mix_history_size:]
+            n = len(relevant_history)
+            new_value = new_inputs[key]
+            if n == 0:
+                mixed_value = new_value
+            else:
+                f = lambda q: 1 - q * (1 - q**n) / (1 - q) - mix_param
+                e = 1e-5
+                q_opt = brentq(f, e, 1 - e)
+                assert isinstance(q_opt, float)
+                mixed_value = mix_param * new_value
+                for i, past_value in enumerate(
+                    reversed(relevant_history)
+                ):
+                    mixed_value += past_value * (q_opt ** (i + 1))
+            mixed_inputs[key] = mixed_value
+        return mixed_inputs
+
+    def new_scf_iteration(self) -> None:
+        """
+        Start a new SCF iteration by resetting the necessary variables.
+        """
+        self.current_scf_iteration += 1
+        self.current_conv_indices = {key: 0 for key in self.input_keys}
+        self.conv_results = {key: [] for key in self.input_keys}
+        self.finished_convergences = {
+            key: False for key in self.input_keys
+        }
+        mixed_inputs = self.generate_mixed_inputs(self.converged_inputs)
+        self.converged_inputs = {}
+        for key in self.input_keys:
+            self.scf_histories[key].append(mixed_inputs[key])
+
+    def num_new_evaluations(self, key: str) -> int:
+        """
+        Determine the number of new evaluations needed for a specific parameter to continue convergence.
+        """
+        if len(self.conv_results[key]) == 0:
+            return self.conv_windows[key]
+        distance_triangle = self.get_distance_triangle(key)
+        num_new_evals = 0
+        for i, row in enumerate(distance_triangle):
+            if np.any(np.array(row) > self.conv_tols[key]):
+                num_new_evals = i + 1
+        if self.current_conv_indices[key] + num_new_evals > len(
+            self.input_values[key]
+        ):
+            return -1
+        return num_new_evals
+
+    def check_finished(self) -> None:
+        """
+        Check if the optimization is finished based on convergence criteria.
+        """
+        if self.all_parameters_converged and self.scf_converged:
+            self.finished = True
+        elif self.current_scf_iteration >= self.scf_max_iterations:
+            self.finished = True
+        elif any(
+            (
+                self.finished_convergences[key]
+                and (not key in self.converged_inputs)
+            )
+            for key in self.input_keys
+        ):
+            self.finished = True
 
 
 class SelfConsistentConvergence(OptimizationEngineWrapper):
     """
-    Wrapper class for self-consistent convergence engine.
-
-    This engine performs convergence studies on multiple input parameters in a
-    self-consistent manner. Within each SCF iteration, it converges ALL parameters
-    in parallel (each varying independently while others are fixed at their current
-    best values), then checks for self-consistency between iterations. The cycle
-    continues until all parameters reach self-consistency.
-
-    Parameters
-    ----------
-    input_values : dict
-        Dictionary mapping parameter names to lists of input values to test
-    tol : dict
-        Dictionary mapping parameter names to convergence tolerances for each parameter
-    scf_thr : dict
-        Dictionary mapping parameter names to self-consistency thresholds
-    result_key : str
-        Name of the output/result key which is the value to converge
-    convergence_window : dict or int
-        Dictionary mapping parameter names to convergence window sizes, or a single
-        integer to use the same window size for all parameters (default: 2)
-    array_name : str or None
-        Name of array within output ArrayData (only needed if output is ArrayData)
-    max_scf_iterations : int
-        Maximum number of self-consistent field iterations (default: 10)
-    logger : optional
-        Logger instance for debugging
-
-    Example
-    -------
-    >>> engine = SelfConsistentConvergence(
-    ...     input_values={'kpoints': [2, 4, 6, 8], 'cutoff': [20, 30, 40, 50]},
-    ...     tol={'kpoints': 0.01, 'cutoff': 0.01},
-    ...     scf_thr={'kpoints': 0.001, 'cutoff': 0.001},
-    ...     result_key='energy',
-    ...     convergence_window={'kpoints': 3, 'cutoff': 2}
-    ... )
-
-    Notes
-    -----
-    The parallel convergence approach in each SCF iteration means:
-    - All parameters are converged simultaneously (not sequentially)
-    - Each parameter varies independently while others stay fixed
-    - All convergence studies run in parallel for maximum efficiency
-    - After all parameters converge, SCF consistency is checked
-    - If not SCF-converged, a new iteration begins with updated reference values
+    Wrapper class for the self-consistent convergence engine.
     """
 
     _IMPL_CLASS = _SelfConsistentConvergenceImpl
 
-    def __new__(  # type: ignore  # pylint: disable=too-many-arguments,arguments-differ
+    def __new__(
         cls,
-        input_values: ty.Dict[str, ty.List[ty.Any]],
-        tol: ty.Dict[str, float],
-        scf_thr: ty.Dict[str, float],
+        input_keys: ty.List[str],
+        input_values: ty.Dict[str, ty.List[ValueType]],
         result_key: str,
-        convergence_window: ty.Union[ty.Dict[str, int], int] = 2,
-        array_name: ty.Optional[str] = None,
-        max_scf_iterations: int = 10,
+        conv_tols: ty.Dict[str, float],
+        conv_windows: ty.Dict[str, int],
+        scf_thrs: ty.Dict[str, float],
+        scf_mixing: ty.Dict[str, float],
+        scf_mixing_history: ty.Dict[str, int],
+        scf_max_iterations: int,
+        initial_inputs: ty.Dict[str, ValueType],
         logger: ty.Optional[ty.Any] = None,
-    ) -> _SelfConsistentConvergenceImpl:
-        param_order = list(input_values.keys())
+    ) -> "SelfConsistentConvergence":
+        """
+        Create a new instance of the self-consistent convergence engine.
 
-        # Convert convergence_window to dict if it's an int
-        if isinstance(convergence_window, int):
-            convergence_window_dict = {
-                param: convergence_window for param in param_order
-            }
-        else:
-            convergence_window_dict = convergence_window
+        :param input_keys: List of input parameter keys to be converged.
+        :param input_values: Dictionary mapping input parameter keys to lists of values to test.
+        :param result_key: Key to extract the result value from evaluation outputs.
+        :param conv_tols: Dictionary mapping input parameter keys to convergence tolerances.
+        :param conv_windows: Dictionary mapping input parameter keys to convergence window sizes.
+        :param scf_thrs: Dictionary mapping input parameter keys to SCF convergence thresholds.
+        :param scf_mixing: Dictionary mapping input parameter keys to SCF mixing parameters.
+        :param scf_mixing_history: Dictionary mapping input parameter keys to SCF mixing history sizes.
+        :param scf_max_iterations: Maximum number of SCF iterations allowed.
+        :param initial_inputs: Dictionary mapping input parameter keys to their initial values as a first guess for the SCF cycle.
+        :param logger: Optional logger instance for reporting.
+        :return: An instance of SelfConsistentConvergence.
+        """
+        scf_histories = {
+            key: [initial_inputs[key]] for key in input_keys
+        }
 
-        return cls._IMPL_CLASS(
-            input_values=input_values,
-            tol=tol,
-            scf_thr=scf_thr,
-            result_key=result_key,
-            convergence_window=convergence_window_dict,
-            array_name=array_name,
-            max_scf_iterations=max_scf_iterations,
-            current_scf_iteration=0,
-            param_order=param_order,
-            converged_values={},
-            current_indices={param: 0 for param in param_order},
-            result_values={param: [] for param in param_order},
-            scf_history=[],
-            params_converged={param: False for param in param_order},
-            initialized=False,
+        impl = cls._IMPL_CLASS(
+            input_keys=input_keys,  # type: ignore
+            input_values=input_values,  # type: ignore
+            result_key=result_key,  # type: ignore
+            conv_tols=conv_tols,  # type: ignore
+            conv_windows=conv_windows,  # type: ignore
+            scf_thrs=scf_thrs,  # type: ignore
+            scf_mixing=scf_mixing,  # type: ignore
+            scf_mixing_history=scf_mixing_history,  # type: ignore
+            scf_max_iterations=scf_max_iterations,  # type: ignore
+            finished_convergences={key: False for key in input_keys},  # type: ignore
+            current_scf_iteration=0,  # type: ignore
+            current_conv_indices={key: 0 for key in input_keys},  # type: ignore
+            conv_results={key: [] for key in input_keys},  # type: ignore
+            scf_histories=scf_histories,  # type: ignore
             logger=logger,
         )
+        return impl  # type: ignore
