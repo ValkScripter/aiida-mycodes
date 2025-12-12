@@ -228,11 +228,9 @@ class _SelfConsistentConvergenceImpl(OptimizationEngineImpl):
         opt_index = max(self._result_mapping.keys())
         opt_inputs = self._result_mapping[opt_index].input
 
-        @calcfunction
-        def merge_results(**kwargs) -> orm.Dict:
-            return orm.Dict(kwargs)
-
-        opt_input = merge_results(**opt_inputs)
+        opt_input = orm.Dict(opt_inputs)
+        opt_input.store()
+        assert opt_input.is_stored
         opt_output = get_nested_result(
             self._result_mapping[opt_index].output, self.result_key
         )
