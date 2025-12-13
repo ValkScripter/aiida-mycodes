@@ -228,7 +228,15 @@ class _SelfConsistentConvergenceImpl(OptimizationEngineImpl):
         opt_index = max(self._result_mapping.keys())
         opt_inputs = self._result_mapping[opt_index].input
 
-        opt_input = orm.Dict(opt_inputs)
+        keys = list(opt_inputs.keys())
+        values = [opt_inputs[k] for k in keys]
+
+        opt_input = orm.Dict(
+            {
+                "keys": orm.List(list=keys),
+                "values": orm.List(list=values),
+            }
+        )
         opt_input.store()
         assert opt_input.is_stored
         opt_output = get_nested_result(
