@@ -334,10 +334,15 @@ class _SelfConsistentConvergenceImpl(OptimizationEngineImpl):
             new_value = new_inputs[key]
             if n == 0:
                 mixed_value = new_value
+            elif n == 1:
+                mixed_value = (
+                    mix_param * new_value
+                    + (1 - mix_param) * relevant_history[0]
+                )
             else:
                 f = lambda q: 1 - q * (1 - q**n) / (1 - q) - mix_param
                 e = 1e-5
-                q_opt = brentq(f, e, 1 - e)
+                q_opt = brentq(f, 0, 1 - e)
                 assert isinstance(q_opt, float)
                 mixed_value = mix_param * new_value
                 for i, past_value in enumerate(
