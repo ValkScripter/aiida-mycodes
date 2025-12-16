@@ -229,6 +229,8 @@ class _SelfConsistentConvergenceImpl(OptimizationEngineImpl):
         opt_inputs = self._result_mapping[opt_index].input
 
         keys = list(opt_inputs.keys())
+        # Sort keys to have a deterministic order
+        keys.sort()
         values = [opt_inputs[k] for k in keys]
 
         opt_input = orm.Dict(
@@ -244,7 +246,7 @@ class _SelfConsistentConvergenceImpl(OptimizationEngineImpl):
         )
         return (opt_index, opt_input, opt_output)
 
-    # TODO: implement additional methods specific to self-consistent convergence engine
+    # Additional methods specific to self-consistent convergence engine
 
     def get_distances(self, key: str) -> ty.List[float]:
         """
