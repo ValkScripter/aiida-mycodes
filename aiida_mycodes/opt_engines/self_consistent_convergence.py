@@ -334,13 +334,8 @@ class _SelfConsistentConvergenceImpl(OptimizationEngineImpl):
             relevant_history = history[-mix_history_size:]
             n = len(relevant_history)
             new_value = new_inputs[key]
-            if n == 0:
+            if n < 2:
                 mixed_value = new_value
-            elif n == 1:
-                mixed_value = (
-                    mix_param * new_value
-                    + (1 - mix_param) * relevant_history[0]
-                )
             else:
                 f = lambda q: 1 - q * (1 - q**n) / (1 - q) - mix_param
                 e = 1e-5
