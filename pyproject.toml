@@ -81,6 +81,10 @@ aiida-mycodes = "aiida_mycodes.cli:cmd_root"
 "mycodes.structure.superposition" = "aiida_mycodes.calculations.structure.tools:superposition"
 "mycodes.birch_murnaghan_fit" = "aiida_mycodes.calculations.birch_murnaghan_fit:birch_murnaghan_fit"
 "mycodes.birch_murnaghan_fit_bayesian" = "aiida_mycodes.calculations.birch_murnaghan_fit:birch_murnaghan_fit_bayesian"
+"mycodes.unklist" = "aiida_mycodes.calculations.unklist:UnklistCalculation"
+
+[project.entry-points."aiida.parsers"]
+"mycodes.unklist" = "aiida_mycodes.parsers.unklist:UnklistParser"
 
 [tool.flit.module]
 name = "aiida_mycodes"
