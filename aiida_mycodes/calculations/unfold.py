@@ -54,6 +54,7 @@ class UnfoldCalculation(NamelistsCalculation):
     _DEFAULT_INPUT_FILE = "unfold.in"
     _DEFAULT_OUTPUT_FILE = "unfold.out"
     _UNFOLD_DATA_FILE = "unfold.out"  # The binary output file to parse
+    _DEFAULT_ROUND_DECIMALS = 5  # Fixed value for transformation matrix rounding
 
     _default_namelists = ['INPUTUN']
     _blocked_keywords = []
@@ -251,7 +252,7 @@ class UnfoldCalculation(NamelistsCalculation):
             input_file_content += "TRMAT\n"
             transformation = np.round(
                 np.linalg.inv(primitive @ np.linalg.inv(supercell)),
-                5,  # round_decimals fixed to 5
+                self._DEFAULT_ROUND_DECIMALS,
             )
             for row in transformation:
                 a, b, c = list(map(int, row))
