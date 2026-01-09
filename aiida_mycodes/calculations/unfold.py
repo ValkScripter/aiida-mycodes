@@ -1,14 +1,22 @@
 """`CalcJob` implementation for the unfold.x code of UNFOLD-X."""
 
+import pathlib
+
 import numpy as np
 
 from aiida import orm
 from aiida.common import datastructures, exceptions
+from aiida_quantumespresso.utils.convert import (
+    conv_to_fortran,
+    convert_input_to_namelist_entry,
+)
 
 try:
     from aiida_quantumespresso.calculations.namelists import NamelistsCalculation
 except ImportError:
     # Fallback for development/testing when aiida_quantumespresso is not installed
+    # Note: This fallback uses CalcJob as base but UnfoldCalculation overrides
+    # prepare_for_submission completely, so it doesn't depend on NamelistsCalculation-specific methods
     from aiida.engine import CalcJob as NamelistsCalculation
 
 
@@ -174,11 +182,6 @@ class UnfoldCalculation(NamelistsCalculation):
         :param folder: a sandbox folder to temporarily write files on disk.
         :return: :class:`~aiida.common.datastructures.CalcInfo` instance.
         """
-        import pathlib
-        from aiida_quantumespresso.utils.convert import (
-            conv_to_fortran,
-            convert_input_to_namelist_entry,
-        )
 
         # Get parameters
         params = self.inputs.parameters.get_dict()
