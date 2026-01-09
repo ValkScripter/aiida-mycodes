@@ -91,7 +91,12 @@ class UnfoldParser(Parser):
         """
         from scipy.signal import find_peaks, peak_widths
 
-        # Reshape data according to unfold.x output format
+        # Reshape data according to unfold.x binary output format
+        # The binary file contains triplets of (kpoint_index, energy, weight) for each point
+        # in the spectral function grid. We extract energies and weights using slice patterns:
+        # - data[1::3] gets every third element starting from index 1 (energies)
+        # - data[2::3] gets every third element starting from index 2 (weights)
+        # Then reshape to (nkpts, n_energy_points) matrix
         energies = data[1::3].reshape((nkpts, -1)) - fermi_energy
         weights = data[2::3].reshape((nkpts, -1))
         kpts = np.meshgrid(

@@ -5,6 +5,10 @@ import numpy as np
 from aiida import orm
 from aiida.common import datastructures
 from aiida.engine import CalcJob
+from aiida_quantumespresso.utils.convert import (
+    conv_to_fortran,
+    convert_input_to_namelist_entry,
+)
 
 
 class UnklistCalculation(CalcJob):
@@ -138,11 +142,6 @@ class UnklistCalculation(CalcJob):
         :param folder: a sandbox folder to temporarily write files on disk.
         :return: :class:`~aiida.common.datastructures.CalcInfo` instance.
         """
-        from aiida_quantumespresso.utils.convert import (
-            conv_to_fortran,
-            convert_input_to_namelist_entry,
-        )
-
         # Get the cell matrices
         supercell = np.array(self.inputs.supercell_structure.cell)
         primitive = np.array(self.inputs.base_structure.cell)
