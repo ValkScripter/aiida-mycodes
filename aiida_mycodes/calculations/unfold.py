@@ -2,25 +2,18 @@
 
 import pathlib
 
-import numpy as np
-
-from aiida import orm
-from aiida.common import datastructures, exceptions
 from aiida_quantumespresso.utils.convert import (
     conv_to_fortran,
     convert_input_to_namelist_entry,
 )
+import numpy as np
 
-try:
-    from aiida_quantumespresso.calculations.namelists import NamelistsCalculation
-except ImportError:
-    # Fallback for development/testing when aiida_quantumespresso is not installed
-    # Note: This fallback uses CalcJob as base but UnfoldCalculation overrides
-    # prepare_for_submission completely, so it doesn't depend on NamelistsCalculation-specific methods
-    from aiida.engine import CalcJob as NamelistsCalculation
+from aiida import orm
+from aiida.common import datastructures, exceptions
+from aiida.engine import CalcJob
 
 
-class UnfoldCalculation(NamelistsCalculation):
+class UnfoldCalculation(CalcJob):
     """AiiDA calculation plugin for the `unfold.x` code of UNFOLD-X.
 
     This class defines the interface for running the `unfold.x` band unfolding code within the AiiDA framework.
@@ -52,15 +45,15 @@ class UnfoldCalculation(NamelistsCalculation):
     """
 
     _DEFAULT_INPUT_FILE = "unfold.in"
-    _DEFAULT_OUTPUT_FILE = "unfold.out"
-    _UNFOLD_DATA_FILE = "unfold.out"  # The binary output file to parse
-    _DEFAULT_ROUND_DECIMALS = 5  # Fixed value for transformation matrix rounding
-
-    _default_namelists = ['INPUTUN']
-    _blocked_keywords = []
+    _DEFAULT_OUTPUT_FILE = (
+        "unfold.out"  # The binary output file to parse
+    )
+    _DEFAULT_ROUND_DECIMALS = (
+        5  # Fixed value for transformation matrix rounding
+    )
 
     _internal_retrieve_list = []
-    _default_parser = 'mycodes.unfold'
+    _default_parser = "mycodes.unfold"
 
     @classmethod
     def define(cls, spec):
@@ -69,10 +62,10 @@ class UnfoldCalculation(NamelistsCalculation):
 
         # Override parent_folder to make it required
         spec.input(
-            'parent_folder',
+            "parent_folder",
             valid_type=(orm.RemoteData, orm.FolderData),
             required=True,
-            help='Use a remote or local folder from parent pw bands calculation.',
+            help="Use a remote or local folder from parent pw bands calculation.",
         )
 
         # Input ports
@@ -97,16 +90,16 @@ class UnfoldCalculation(NamelistsCalculation):
 
         # Parameters contains: fermi_energy, Emin, Emax, deltaE, broadening, and optionally proj_orbitals
         spec.input(
-            'parameters',
+            "parameters",
             valid_type=orm.Dict,
             required=True,
-            help='Calculation parameters: fermi_energy (required), Emin, Emax, deltaE, broadening, proj_orbitals (optional list).',
+            help="Calculation parameters: fermi_energy (required), Emin, Emax, deltaE, broadening, proj_orbitals (optional list).",
         )
         spec.input(
-            'settings',
+            "settings",
             valid_type=orm.Dict,
             required=False,
-            help='Use an additional node for special settings'
+            help="Use an additional node for special settings",
         )
 
         spec.input(
@@ -130,9 +123,14 @@ class UnfoldCalculation(NamelistsCalculation):
 
         # Output ports
         spec.output(
-            "output_parameters",
-            valid_type=orm.Dict,
-            help="Parsed spectral function data from unfold.x calculation.",
+            "output_contourf",
+            valid_type=orm.ArrayData,
+            help="The spectral function data for contourf plots.",
+        )
+        spec.output(
+            "output_scatter",
+            valid_type=orm.ArrayData,
+            help="The spectral function data for scatter plots.",
         )
 
         # Standard exceptions
@@ -186,19 +184,26 @@ class UnfoldCalculation(NamelistsCalculation):
 
         # Get parameters
         params = self.inputs.parameters.get_dict()
-        fermi_energy = params['fermi_energy']
-        Emin = params.get('Emin', -5.0)
-        Emax = params.get('Emax', 5.0)
-        deltaE = params.get('deltaE', 0.01)
-        broadening = params.get('broadening', 0.1)
-        proj_orbitals = params.get('proj_orbitals', None)
+        fermi_energy = params["fermi_energy"]
+        Emin = params.get("Emin", -5.0)
+        Emax = params.get("Emax", 5.0)
+        deltaE = params.get("deltaE", 0.01)
+        broadening = params.get("broadening", 0.1)
+        proj_orbitals = params.get("proj_orbitals", None)
+
+        supercell_structure: orm.StructureData = (
+            self.inputs.supercell_structure
+        )
+        primitive_structure: orm.StructureData = (
+            self.inputs.base_structure
+        )
 
         # Get the cell matrices
-        supercell = np.array(self.inputs.supercell_structure.cell)
-        primitive = np.array(self.inputs.base_structure.cell)
-
+        supercell = np.array(supercell_structure.cell)
+        primitive = np.array(primitive_structure.cell)
         # Get k-points from KpointsData
-        kpoints_array = self.inputs.kpoints.get_kpoints()
+        kpoints: orm.KpointsData = self.inputs.kpoints
+        kpoints_array = kpoints.get_kpoints()
 
         # Create the input file content using adapted logic from create_unfold_input
         input_filename = self.inputs.metadata.options.input_filename
@@ -224,7 +229,7 @@ class UnfoldCalculation(NamelistsCalculation):
                 "w", broadening
             )
             input_file_content += convert_input_to_namelist_entry(
-                "filout", self._UNFOLD_DATA_FILE
+                "filout", self._DEFAULT_OUTPUT_FILE
             )
             input_file_content += convert_input_to_namelist_entry(
                 "nscfklist", False
@@ -262,7 +267,9 @@ class UnfoldCalculation(NamelistsCalculation):
             if proj_orbitals is not None:
                 input_file_content += "ATOMIC_ORBITALS explicit\n"
                 input_file_content += f"{len(proj_orbitals)}\n"
-                input_file_content += "\t".join(map(str, proj_orbitals)) + "\n"
+                input_file_content += (
+                    "\t".join(map(str, proj_orbitals)) + "\n"
+                )
                 input_file_content += "\n"
 
             input_file_content += "UNKPTS crystal\n"
@@ -281,25 +288,36 @@ class UnfoldCalculation(NamelistsCalculation):
 
         # Get settings if provided
         settings = {}
-        if 'settings' in self.inputs:
+        if "settings" in self.inputs:
             settings = self.inputs.settings.get_dict()
 
-        symlink = settings.get('PARENT_FOLDER_SYMLINK', False)
-        remote_list = remote_symlink_list if symlink else remote_copy_list
+        symlink = settings.get("PARENT_FOLDER_SYMLINK", True)
+        remote_list = (
+            remote_symlink_list if symlink else remote_copy_list
+        )
 
         source = self.inputs.parent_folder
 
         if isinstance(source, orm.RemoteData):
-            dirname = settings.get('PARENT_CALC_OUT_SUBFOLDER', './out/')
+            dirname = settings.get(
+                "PARENT_CALC_OUT_SUBFOLDER", "./out/"
+            )
             dirpath = pathlib.Path(source.get_remote_path()) / dirname
-            remote_list.append((source.computer.uuid, str(dirpath), './out/'))
+            assert source.computer is not None  # mypy type checking
+            remote_list.append(
+                (source.computer.uuid, str(dirpath), "./out/")
+            )
         elif isinstance(source, orm.FolderData):
-            local_copy_list.append((source.uuid, './out/', './out/'))
+            local_copy_list.append((source.uuid, "./out/", "./out/"))
 
         # Code information
         codeinfo = datastructures.CodeInfo()
-        codeinfo.stdin_name = self.inputs.metadata.options.input_filename
-        codeinfo.stdout_name = self.inputs.metadata.options.output_filename
+        codeinfo.stdin_name = (
+            self.inputs.metadata.options.input_filename
+        )
+        codeinfo.stdout_name = (
+            self.inputs.metadata.options.output_filename
+        )
         codeinfo.code_uuid = self.inputs.code.uuid
 
         # Calculation information
@@ -311,9 +329,8 @@ class UnfoldCalculation(NamelistsCalculation):
         calcinfo.remote_symlink_list = remote_symlink_list
 
         # Retrieve files
-        calcinfo.retrieve_list = [
+        calcinfo.retrieve_temporary_list = [
             self.inputs.metadata.options.output_filename,
-            self._UNFOLD_DATA_FILE
         ]
 
         return calcinfo

@@ -1,14 +1,14 @@
 """`CalcJob` implementation for the unklist.x code of UNFOLD-X."""
 
+from aiida_quantumespresso.utils.convert import (
+    conv_to_fortran,
+    convert_input_to_namelist_entry,
+)
 import numpy as np
 
 from aiida import orm
 from aiida.common import datastructures
 from aiida.engine import CalcJob
-from aiida_quantumespresso.utils.convert import (
-    conv_to_fortran,
-    convert_input_to_namelist_entry,
-)
 
 
 class UnklistCalculation(CalcJob):
@@ -147,7 +147,8 @@ class UnklistCalculation(CalcJob):
         primitive = np.array(self.inputs.base_structure.cell)
 
         # Get k-points from KpointsData
-        kpoints_array = self.inputs.kpoints.get_kpoints()
+        kpoints: orm.KpointsData = self.inputs.kpoints
+        kpoints_array = kpoints.get_kpoints()
 
         # Code information
         codeinfo = datastructures.CodeInfo()

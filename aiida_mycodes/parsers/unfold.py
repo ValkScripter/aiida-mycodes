@@ -16,58 +16,85 @@ class UnfoldParser(Parser):
     This parser produces:
     - 'output_parameters': a Dict containing parsed spectral function data from the unfold.x calculation.
 
-    Assumes the presence of the binary output file containing the spectral function data.
+    Assumes the presence of the text output file containing the spectral function data.
     """
 
     def parse(self, **kwargs):
-        """Parse the retrieved files into output nodes."""
+        """Parse the retrieved temporary files into output nodes."""
         # Get the output data filename (the binary output file from unfold.x)
-        output_data_filename = 'unfold.out'
+        output_data_filename = self.node.get_option("output_filename")
+        assert isinstance(output_data_filename, str)
 
         # Parse the spectral function from the binary output file
         try:
-            # Check if file exists in retrieved folder
-            if output_data_filename not in self.retrieved.list_object_names():
-                self.logger.error(f"Output data file {output_data_filename} not found in retrieved folder")
-                return self.exit_codes.ERROR_OUTPUT_STDOUT_MISSING
-
-            # Get the number of k-points from the input kpoints
-            try:
-                nkpts = len(self.node.inputs.kpoints.get_kpoints())
-            except Exception as exc:
-                self.logger.error(f"Could not get number of k-points: {exc}")
-                return self.exit_codes.ERROR_OUTPUT_STDOUT_PARSE
-
-            # Get fermi_energy from parameters
-            try:
-                fermi_energy = self.node.inputs.parameters.get_dict()['fermi_energy']
-            except (KeyError, AttributeError) as exc:
-                self.logger.error(f"Could not get fermi_energy from parameters: {exc}")
-                return self.exit_codes.ERROR_OUTPUT_STDOUT_PARSE
-
-            # Read binary file and parse the spectral function data
-            # Note: We need to get the actual file path for binary reading
-            # Use retrieved.open() with 'rb' mode for binary files
-            with self.retrieved.open(output_data_filename, 'rb') as handle:
-                # Read all binary data
-                data = np.frombuffer(handle.read(), dtype=np.float64)
-            
-            spectral_data = self.parse_spectral_function_from_data(
-                data,
-                nkpts,
-                fermi_energy
-            )
-            
-            # Create output Dict node
-            output_parameters = orm.Dict(dict=spectral_data)
-            self.out("output_parameters", output_parameters)
-
+            retrieved_temporary_folder = kwargs[
+                "retrieved_temporary_folder"
+            ]
+            with open(
+                Path(retrieved_temporary_folder) / output_data_filename
+            ) as file_handler:
+                output_data = np.fromfile(file_handler)
         except OSError as exc:
             self.logger.error(f"Error reading output file: {exc}")
             return self.exit_codes.ERROR_OUTPUT_STDOUT_READ
         except Exception as exception:  # pylint: disable=broad-except
-            self.logger.error(f"Error parsing spectral function: {exception}")
+            self.logger.error(
+                f"Error parsing spectral function: {exception}"
+            )
             return self.exit_codes.ERROR_OUTPUT_STDOUT_PARSE
+
+        # Get the number of k-points from the input kpoints
+        try:
+            assert isinstance(self.node.inputs.kpoints, orm.KpointsData)
+            nkpts = len(self.node.inputs.kpoints.get_kpoints())
+        except Exception as exc:
+            self.logger.error(
+                f"Could not get number of k-points: {exc}"
+            )
+            return self.exit_codes.ERROR_OUTPUT_STDOUT_PARSE
+
+        # Get fermi_energy from parameters
+        try:
+            assert isinstance(self.node.inputs.parameters, orm.Dict)
+            fermi_energy = self.node.inputs.parameters.get_dict()[
+                "fermi_energy"
+            ]
+            assert isinstance(fermi_energy, (int, float))
+        except (KeyError, AttributeError) as exc:
+            self.logger.error(
+                f"Could not get fermi_energy from parameters: {exc}"
+            )
+            return self.exit_codes.ERROR_OUTPUT_STDOUT_PARSE
+
+        # Parse the spectral function data
+        spectral_data = self.parse_spectral_function_from_data(
+            output_data, nkpts, fermi_energy
+        )
+
+        # Create output Dict node
+        output_contourf = orm.ArrayData()
+        output_contourf.set_array(
+            "kpts", np.array(spectral_data["contourf"]["kpts"])
+        )
+        output_contourf.set_array(
+            "energies", np.array(spectral_data["contourf"]["energies"])
+        )
+        output_contourf.set_array(
+            "weights", np.array(spectral_data["contourf"]["weights"])
+        )
+        self.out("output_contourf", output_contourf)
+
+        output_scatter = orm.ArrayData()
+        output_scatter.set_array(
+            "kpts", np.array(spectral_data["scatter"]["kpts"])
+        )
+        output_scatter.set_array(
+            "bands", np.array(spectral_data["scatter"]["bands"])
+        )
+        output_scatter.set_array(
+            "sizes", np.array(spectral_data["scatter"]["sizes"])
+        )
+        self.out("output_scatter", output_scatter)
 
     def parse_spectral_function_from_data(
         self,
@@ -142,16 +169,16 @@ class UnfoldParser(Parser):
 
         # Return data in a format suitable for serialization
         return {
-            'contourf': {
-                'kpts': kpts.tolist(),
-                'energies': energies.tolist(),
-                'weights': weights.tolist(),
+            "contourf": {
+                "kpts": kpts.tolist(),
+                "energies": energies.tolist(),
+                "weights": weights.tolist(),
             },
-            'scatter': {
-                'kpts': kpts[:, :max_bands].tolist(),
-                'bands': bands.tolist(),
-                'sizes': sizes.tolist(),
+            "scatter": {
+                "kpts": kpts[:, :max_bands].tolist(),
+                "bands": bands.tolist(),
+                "sizes": sizes.tolist(),
             },
-            'nkpts': nkpts,
-            'fermi_energy': fermi_energy,
+            "nkpts": nkpts,
+            "fermi_energy": fermi_energy,
         }
