@@ -17,8 +17,7 @@ class UnklistCalculation(CalcJob):
     Inputs:
         - base_structure (StructureData, required): The primitive/base structure.
         - supercell_structure (StructureData, required): The supercell structure.
-        - kpoints_path (Str, required): The k-point path in the primitive cell (e.g., "GXMG").
-        - kpoints_distance (Float, required): The density of k-points along the path.
+        - kpoints (KpointsData, required): The k-points for unfolding in the primitive cell.
         - metadata.options.input_filename (str, default="unklist.in"): Name of the input file.
         - metadata.options.output_filename (str, default="unklist.out"): Name of the output file.
         - metadata.options.parser_name (str, default="mycodes.unklist"): Name of the parser to use.
@@ -59,16 +58,10 @@ class UnklistCalculation(CalcJob):
             help="The supercell structure.",
         )
         spec.input(
-            "kpoints_path",
-            valid_type=orm.Str,
+            "kpoints",
+            valid_type=orm.KpointsData,
             required=True,
-            help="The k-point path in the primitive cell (e.g., 'GXMG').",
-        )
-        spec.input(
-            "kpoints_distance",
-            valid_type=orm.Float,
-            required=True,
-            help="The density of k-points along the path.",
+            help="The k-points for unfolding in the primitive cell.",
         )
 
         spec.input(
@@ -149,12 +142,13 @@ class UnklistCalculation(CalcJob):
             conv_to_fortran,
             convert_input_to_namelist_entry,
         )
-        from ase.cell import Cell
-        from ase.dft.kpoints import BandPath
 
         # Get the cell matrices
         supercell = np.array(self.inputs.supercell_structure.cell)
         primitive = np.array(self.inputs.base_structure.cell)
+
+        # Get k-points from KpointsData
+        kpoints_array = self.inputs.kpoints.get_kpoints()
 
         # Code information
         codeinfo = datastructures.CodeInfo()
@@ -205,14 +199,9 @@ class UnklistCalculation(CalcJob):
             input_file_content += "\n\n"
 
             input_file_content += "UNKPTS crystal\n"
-            # Generate k-points using ASE
-            bandpath: BandPath = Cell(primitive).bandpath(
-                self.inputs.kpoints_path.value,
-                density=1.0 / self.inputs.kpoints_distance.value,
-            )
-            kpts = bandpath.kpts
-            input_file_content += f"{len(kpts)}\n"
-            for kpt in kpts:
+            # Use k-points from KpointsData input
+            input_file_content += f"{len(kpoints_array)}\n"
+            for kpt in kpoints_array:
                 a, b, c = list(kpt)
                 input_file_content += f"{conv_to_fortran(a)}\t{conv_to_fortran(b)}\t{conv_to_fortran(c)}\t0.0\n"
             input_file_content += "\n"
