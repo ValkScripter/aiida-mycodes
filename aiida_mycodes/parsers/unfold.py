@@ -21,21 +21,13 @@ class UnfoldParser(Parser):
 
     def parse(self, **kwargs):
         """Parse the retrieved files into output nodes."""
-        # Get the output data filename from the calculation
-        try:
-            output_data_filename = self.node.outputs.caller.inputs.metadata.options.get('unfold_data_file', 'unfold.out')
-        except (AttributeError, KeyError):
-            output_data_filename = 'unfold.out'
+        # Get the output data filename (the binary output file from unfold.x)
+        output_data_filename = 'unfold.out'
 
         # Parse the spectral function from the binary output file
         try:
-            retrieved_temporary_folder = kwargs.get('retrieved_temporary_folder')
-            if not retrieved_temporary_folder:
-                return self.exit_codes.ERROR_NO_RETRIEVED_TEMPORARY_FOLDER
-
-            output_file_path = Path(retrieved_temporary_folder) / output_data_filename
-            
-            if not output_file_path.exists():
+            # Check if file exists in retrieved folder
+            if output_data_filename not in self.retrieved.list_object_names():
                 self.logger.error(f"Output data file {output_data_filename} not found in retrieved folder")
                 return self.exit_codes.ERROR_OUTPUT_STDOUT_MISSING
 
@@ -53,9 +45,15 @@ class UnfoldParser(Parser):
                 self.logger.error(f"Could not get fermi_energy from parameters: {exc}")
                 return self.exit_codes.ERROR_OUTPUT_STDOUT_PARSE
 
-            # Parse the spectral function data
-            spectral_data = self.parse_spectral_function(
-                str(output_file_path),
+            # Read binary file and parse the spectral function data
+            # Note: We need to get the actual file path for binary reading
+            # Use retrieved.open() with 'rb' mode for binary files
+            with self.retrieved.open(output_data_filename, 'rb') as handle:
+                # Read all binary data
+                data = np.frombuffer(handle.read(), dtype=np.float64)
+            
+            spectral_data = self.parse_spectral_function_from_data(
+                data,
                 nkpts,
                 fermi_energy
             )
@@ -71,20 +69,20 @@ class UnfoldParser(Parser):
             self.logger.error(f"Error parsing spectral function: {exception}")
             return self.exit_codes.ERROR_OUTPUT_STDOUT_PARSE
 
-    def parse_spectral_function(
+    def parse_spectral_function_from_data(
         self,
-        output_file: str,
+        data: np.ndarray,
         nkpts: int,
         fermi_energy: float,
         prominence: float = 0.5,
         rel_height: float = 0.5,
     ) -> dict:
         """
-        Parse the binary output file of unfold.x and return the spectral function data.
+        Parse the binary data from unfold.x output and return the spectral function data.
 
         This method uses the logic from read_unfold_output in tools/unfold.py.
 
-        :param output_file: Path to the binary output file.
+        :param data: Binary data array read from the output file.
         :param nkpts: Number of k-points.
         :param fermi_energy: Fermi energy in eV.
         :param prominence: Peak prominence parameter for peak detection.
@@ -92,9 +90,6 @@ class UnfoldParser(Parser):
         :return: Dictionary with spectral function data.
         """
         from scipy.signal import find_peaks, peak_widths
-
-        # Read binary data
-        data = np.fromfile(output_file)
 
         # Reshape data according to unfold.x output format
         energies = data[1::3].reshape((nkpts, -1)) - fermi_energy
