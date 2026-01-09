@@ -82,9 +82,11 @@ aiida-mycodes = "aiida_mycodes.cli:cmd_root"
 "mycodes.birch_murnaghan_fit" = "aiida_mycodes.calculations.birch_murnaghan_fit:birch_murnaghan_fit"
 "mycodes.birch_murnaghan_fit_bayesian" = "aiida_mycodes.calculations.birch_murnaghan_fit:birch_murnaghan_fit_bayesian"
 "mycodes.unklist" = "aiida_mycodes.calculations.unklist:UnklistCalculation"
+"mycodes.unfold" = "aiida_mycodes.calculations.unfold:UnfoldCalculation"
 
 [project.entry-points."aiida.parsers"]
 "mycodes.unklist" = "aiida_mycodes.parsers.unklist:UnklistParser"
+"mycodes.unfold" = "aiida_mycodes.parsers.unfold:UnfoldParser"
 
 [tool.flit.module]
 name = "aiida_mycodes"
