@@ -25,7 +25,12 @@ class UnfoldCalculation(CalcJob):
         - supercell_structure (StructureData, required): The supercell structure.
         - kpoints (KpointsData, required): The k-point mesh for unfolding.
         - parent_folder (RemoteData/FolderData, required): Parent folder from pw bands calculation.
-        - parameters (Dict, required): Calculation parameters including fermi_energy, Emin, Emax, deltaE, broadening.
+        - fermi_energy (Float, required): The Fermi energy in eV.
+        - energy_min (Float, optional, default=-5.0): Minimum energy relative to Fermi level in eV.
+        - energy_max (Float, optional, default=5.0): Maximum energy relative to Fermi level in eV.
+        - energy_step (Float, optional, default=0.01): Energy step size in eV.
+        - broadening (Float, optional, default=0.1): Broadening parameter in eV.
+        - proj_orbitals (List, optional): List of orbital indices to project onto.
         - metadata.options.input_filename (str, default="unfold.in"): Name of the input file.
         - metadata.options.output_filename (str, default="unfold.out"): Name of the output file.
         - metadata.options.parser_name (str, default="mycodes.unfold"): Name of the parser to use.
@@ -89,12 +94,46 @@ class UnfoldCalculation(CalcJob):
             help="The k-points for unfolding in the primitive cell.",
         )
 
-        # Parameters contains: fermi_energy, Emin, Emax, deltaE, broadening, and optionally proj_orbitals
+        # Energy and spectral parameters
         spec.input(
-            "parameters",
-            valid_type=orm.Dict,
+            "fermi_energy",
+            valid_type=orm.Float,
             required=True,
-            help="Calculation parameters: fermi_energy (required), Emin, Emax, deltaE, broadening, proj_orbitals (optional list).",
+            help="The Fermi energy in eV.",
+        )
+        spec.input(
+            "energy_min",
+            valid_type=orm.Float,
+            required=False,
+            default=lambda: orm.Float(-5.0),
+            help="Minimum energy relative to Fermi level in eV.",
+        )
+        spec.input(
+            "energy_max",
+            valid_type=orm.Float,
+            required=False,
+            default=lambda: orm.Float(5.0),
+            help="Maximum energy relative to Fermi level in eV.",
+        )
+        spec.input(
+            "energy_step",
+            valid_type=orm.Float,
+            required=False,
+            default=lambda: orm.Float(0.01),
+            help="Energy step size in eV.",
+        )
+        spec.input(
+            "broadening",
+            valid_type=orm.Float,
+            required=False,
+            default=lambda: orm.Float(0.1),
+            help="Broadening parameter in eV.",
+        )
+        spec.input(
+            "proj_orbitals",
+            valid_type=orm.List,
+            required=False,
+            help="List of orbital indices to project onto (optional).",
         )
         spec.input(
             "settings",
@@ -183,14 +222,17 @@ class UnfoldCalculation(CalcJob):
         :return: :class:`~aiida.common.datastructures.CalcInfo` instance.
         """
 
-        # Get parameters
-        params = self.inputs.parameters.get_dict()
-        fermi_energy = params["fermi_energy"]
-        Emin = params.get("Emin", -5.0)
-        Emax = params.get("Emax", 5.0)
-        deltaE = params.get("deltaE", 0.01)
-        broadening = params.get("broadening", 0.1)
-        proj_orbitals = params.get("proj_orbitals", None)
+        # Get parameters from separate inputs
+        fermi_energy = self.inputs.fermi_energy.value
+        Emin = self.inputs.energy_min.value
+        Emax = self.inputs.energy_max.value
+        deltaE = self.inputs.energy_step.value
+        broadening = self.inputs.broadening.value
+        proj_orbitals = (
+            self.inputs.proj_orbitals.get_list()
+            if "proj_orbitals" in self.inputs
+            else None
+        )
 
         supercell_structure: orm.StructureData = (
             self.inputs.supercell_structure

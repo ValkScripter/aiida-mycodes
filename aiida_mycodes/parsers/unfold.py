@@ -54,16 +54,14 @@ class UnfoldParser(Parser):
             )
             return self.exit_codes.ERROR_OUTPUT_STDOUT_PARSE
 
-        # Get fermi_energy from parameters
+        # Get fermi_energy from input
         try:
-            assert isinstance(self.node.inputs.parameters, orm.Dict)
-            fermi_energy = self.node.inputs.parameters.get_dict()[
-                "fermi_energy"
-            ]
+            assert isinstance(self.node.inputs.fermi_energy, orm.Float)
+            fermi_energy = self.node.inputs.fermi_energy.value
             assert isinstance(fermi_energy, (int, float))
-        except (KeyError, AttributeError) as exc:
+        except (AttributeError, AssertionError) as exc:
             self.logger.error(
-                f"Could not get fermi_energy from parameters: {exc}"
+                f"Could not get fermi_energy from inputs: {exc}"
             )
             return self.exit_codes.ERROR_OUTPUT_STDOUT_PARSE
 
