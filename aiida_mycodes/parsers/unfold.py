@@ -22,7 +22,7 @@ class UnfoldParser(Parser):
     def parse(self, **kwargs):
         """Parse the retrieved temporary files into output nodes."""
         # Get the output data filename (the binary output file from unfold.x)
-        output_data_filename = self.node.get_option("output_filename")
+        output_data_filename = "unfold.dat"
         assert isinstance(output_data_filename, str)
 
         # Parse the spectral function from the binary output file
@@ -31,11 +31,12 @@ class UnfoldParser(Parser):
                 "retrieved_temporary_folder"
             ]
             with open(
-                Path(retrieved_temporary_folder) / output_data_filename
+                Path(retrieved_temporary_folder) / output_data_filename,
+                "rb",
             ) as file_handler:
                 output_data = np.fromfile(file_handler)
         except OSError as exc:
-            self.logger.error(f"Error reading output file: {exc}")
+            self.logger.error(f"Error reading data file: {exc}")
             return self.exit_codes.ERROR_OUTPUT_STDOUT_READ
         except Exception as exception:  # pylint: disable=broad-except
             self.logger.error(

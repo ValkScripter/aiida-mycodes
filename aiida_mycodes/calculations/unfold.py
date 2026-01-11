@@ -48,6 +48,7 @@ class UnfoldCalculation(CalcJob):
     _DEFAULT_OUTPUT_FILE = (
         "unfold.out"  # The binary output file to parse
     )
+    _DEFAULT_DATA_FILE = "unfold.dat"
     _DEFAULT_ROUND_DECIMALS = (
         5  # Fixed value for transformation matrix rounding
     )
@@ -229,7 +230,7 @@ class UnfoldCalculation(CalcJob):
                 "w", broadening
             )
             input_file_content += convert_input_to_namelist_entry(
-                "filout", self._DEFAULT_OUTPUT_FILE
+                "filout", self._DEFAULT_DATA_FILE
             )
             input_file_content += convert_input_to_namelist_entry(
                 "nscfklist", False
@@ -331,6 +332,7 @@ class UnfoldCalculation(CalcJob):
         # Retrieve files
         calcinfo.retrieve_temporary_list = [
             self.inputs.metadata.options.output_filename,
+            self._DEFAULT_DATA_FILE,
         ]
 
         return calcinfo
