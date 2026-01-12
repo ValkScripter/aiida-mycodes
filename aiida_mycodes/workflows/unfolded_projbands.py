@@ -294,7 +294,9 @@ class UnfoldedProjBandsWorkChain(WorkChain):
         unfold_inputs["energy_max"] = (
             self.ctx.projwfcbands_wc.inputs.Emax
         )
-        projwfc = self.ctx.projwfcbands_wc.inputs.projwfc["PROJWFC"]
+        projwfc = self.ctx.projwfcbands_wc.inputs.projwfc.projwfc.parameters.get_dict()[
+            "PROJWFC"
+        ]
         unfold_inputs["energy_step"] = projwfc.get(
             "deltae"
         ) or projwfc.get("DeltaE")
@@ -365,7 +367,9 @@ class UnfoldedProjBandsWorkChain(WorkChain):
         unfold_inputs["energy_max"] = (
             self.ctx.projwfcbands_wc.inputs.Emax
         )
-        projwfc = self.ctx.projwfcbands_wc.inputs.projwfc["PROJWFC"]
+        projwfc = self.ctx.projwfcbands_wc.inputs.projwfc.projwfc.parameters.get_dict()[
+            "PROJWFC"
+        ]
         unfold_inputs["energy_step"] = projwfc.get(
             "deltae"
         ) or projwfc.get("DeltaE")
