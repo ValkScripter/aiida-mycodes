@@ -2,6 +2,7 @@
 
 # pylint: disable=no-member, inconsistent-return-statements
 
+from pathlib import Path
 import typing as ty
 
 from aiida_quantumespresso.calculations.functions.seekpath_structure_analysis import (
@@ -177,16 +178,16 @@ class MyProjwfcBandsWorkChain(ProtocolMixin, WorkChain):
 
         spec.inputs.validator = validate_inputs
 
-        spec.outline(
+        spec.outline(                           # type: ignore
             cls.setup,
-            if_(cls.should_run_seekpath)(
-                cls.run_seekpath,
+            if_(cls.should_run_seekpath)(       # type: ignore
+                cls.run_seekpath,                 # type: ignore
             ),
-            if_(cls.should_run_scf)(
-                cls.run_scf,
-                cls.inspect_scf,
+            if_(cls.should_run_scf)(           # type: ignore
+                cls.run_scf,                     # type: ignore
+                cls.inspect_scf,            # type: ignore
             ).else_(
-                cls.retrieve_scf,
+                cls.retrieve_scf,          # type: ignore
             ),
             cls.run_bands,
             cls.inspect_bands,
@@ -232,13 +233,31 @@ class MyProjwfcBandsWorkChain(ProtocolMixin, WorkChain):
             help='The output parameters of the BANDS `PwBaseWorkChain`.')
         spec.output('band_structure', valid_type=orm.BandsData,
             help='The computed band structure.')
+        spec.output(
+            "scf_remote_folder",
+            valid_type=orm.RemoteData,
+            required=False,
+            help="The remote folder of the SCF `PwBaseWorkChain`.",
+        )
+        spec.output(
+            "bands_remote_folder",
+            valid_type=orm.RemoteData,
+            help="The remote folder of the BANDS `PwBaseWorkChain`.",
+        )
+        spec.output(
+            "projwfc_remote_folder",
+            valid_type=orm.RemoteData,
+            help="The remote folder of the PROJWFC `ProjwfcBaseWorkChain`.",
+        )
         spec.expose_outputs(ProjwfcBaseWorkChain, namespace="projwfc")
         # yapf: enable
 
     @classmethod
     def get_protocol_filepath(cls):
         """Return ``pathlib.Path`` to the ``.yaml`` file that defines the protocols."""
-        return files(protocols) / "projwfcbands.yaml"
+        file = files(protocols) / "projwfcbands.yaml"
+        # convert from importlib_resources.Traversable to pathlib.Path
+        return Path(str(file))
 
     @classmethod
     def get_builder_from_protocol(
@@ -247,9 +266,9 @@ class MyProjwfcBandsWorkChain(ProtocolMixin, WorkChain):
         projwfc_code: ty.Union[str, int, orm.Code],
         structure: orm.StructureData,
         *,
-        protocol: str = None,
-        overrides: dict = None,
-        options: dict = None,
+        protocol: str | None = None,
+        overrides: dict | None = None,
+        options: dict | None = None,
         **kwargs,
     ) -> ProcessBuilder:
         """Return a builder prepopulated with inputs selected according to the specified arguments.
@@ -538,6 +557,18 @@ class MyProjwfcBandsWorkChain(ProtocolMixin, WorkChain):
                 ProjwfcBaseWorkChain,
                 namespace="projwfc",
             )
+        )
+        self.out(
+            "scf_remote_folder",
+            self.ctx.workchain_scf.outputs.remote_folder,
+        )
+        self.out(
+            "bands_remote_folder",
+            self.ctx.workchain_bands.outputs.remote_folder,
+        )
+        self.out(
+            "projwfc_remote_folder",
+            self.ctx.workchain_projwfc.outputs.remote_folder,
         )
 
     def on_terminated(self):

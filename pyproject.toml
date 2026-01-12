@@ -74,6 +74,7 @@ aiida-mycodes = "aiida_mycodes.cli:cmd_root"
 "mycodes.relaxation_phonon_vs_strain" = "aiida_mycodes.workflows.phonon_vs_strain:PhononStrainWorkChain"
 "mycodes.superposition_scf" = "aiida_mycodes.workflows.superposition_scf:SuperpositionSCFWorkChain"
 "mycodes.fireball_superposition_scf" = "aiida_mycodes.workflows.superposition_scf:FireballSuperpositionSCFWorkChain"
+"mycodes.unfolded_projbands" = "aiida_mycodes.workflows.unfolded_projbands:UnfoldedProjBandsWorkChain"
 
 [project.entry-points."aiida.calculations"]
 "mycodes.structure.interpolate" = "aiida_mycodes.calculations.structure.tools:interpolate_structures"
