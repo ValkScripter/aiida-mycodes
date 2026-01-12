@@ -357,7 +357,7 @@ class UnfoldedProjBandsWorkChain(WorkChain):
             self.ctx.projwfcbands_wc.outputs.scf_parameters.dict.fermi_energy
         )
         unfold_inputs["parent_folder"] = (
-            self.ctx.projwfcbands_wc.outputs.bands_remote_folder
+            self.ctx.projwfcbands_wc.outputs.projwfc_remote_folder
         )
         unfold_inputs["energy_min"] = (
             self.ctx.projwfcbands_wc.inputs.Emin
