@@ -67,7 +67,6 @@ class UnklistCalculation(CalcJob):
             required=True,
             help="The k-points for unfolding in the primitive cell.",
         )
-
         spec.input(
             "metadata.options.input_filename",
             valid_type=str,

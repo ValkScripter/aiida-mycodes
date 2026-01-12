@@ -53,10 +53,9 @@ class UnfoldedProjBandsWorkChain(WorkChain):
         spec.expose_inputs(
             process_class=UnklistCalculation,
             namespace="unklist",
-            exclude=[
-                "base_structure",
-                "supercell_structure",
-                "kpoints",
+            include=[
+                "code",
+                "metadata",
             ],
             namespace_options={
                 "help": "Inputs for the unklist calculation to generate the k-point list in the supercell.",
@@ -78,16 +77,14 @@ class UnfoldedProjBandsWorkChain(WorkChain):
         spec.expose_inputs(
             process_class=UnfoldCalculation,
             namespace="unfold",
-            exclude=["structure", "bands_kpoints", "base_structure"],
+            include=[
+                "code",
+                "broadening",
+                "metadata",
+            ],
             namespace_options={
                 "help": "Inputs for the unfold calculation to compute the unfolded band structures.",
             },
-        )
-        spec.input(
-            "broadening",
-            valid_type=orm.Float,
-            default=lambda: orm.Float(0.1),
-            help="The broadening (in eV) to use in the unfold calculations.",
         )
         spec.input(
             "clean_workdir",
@@ -217,7 +214,7 @@ class UnfoldedProjBandsWorkChain(WorkChain):
             MyProjwfcBandsWorkChain,
             namespace="projwfcbands",
         )
-        projwfcbands_inputs["clean_workdir"] = lambda: orm.Bool(False)
+        projwfcbands_inputs["clean_workdir"] = orm.Bool(False)
         projwfcbands_inputs["structure"] = self.ctx.supercell_structure
         projwfcbands_inputs["bands_kpoints"] = (
             self.ctx.folded_bands_kpoints
@@ -266,7 +263,9 @@ class UnfoldedProjBandsWorkChain(WorkChain):
             self.ctx.supercell_structure
         )
         unfold_inputs["kpoints"] = self.ctx.bands_kpoints
-        unfold_inputs["broadening"] = self.inputs.broadening
+        unfold_inputs.setdefault(
+            "broadening", orm.Float(0.1)
+        )  # default broadening
         unfold_inputs["fermi_energy"] = (
             self.ctx.projwfcbands_wc.outputs.scf_parameters.dict.fermi_energy
         )
@@ -327,7 +326,9 @@ class UnfoldedProjBandsWorkChain(WorkChain):
             self.ctx.supercell_structure
         )
         unfold_inputs["kpoints"] = self.ctx.bands_kpoints
-        unfold_inputs["broadening"] = self.inputs.broadening
+        unfold_inputs.setdefault(
+            "broadening", orm.Float(0.1)
+        )  # default broadening
         unfold_inputs["fermi_energy"] = (
             self.ctx.projwfcbands_wc.outputs.scf_parameters.dict.fermi_energy
         )

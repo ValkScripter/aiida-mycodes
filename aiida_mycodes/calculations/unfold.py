@@ -136,13 +136,6 @@ class UnfoldCalculation(CalcJob):
             help="List of orbital indices to project onto (optional).",
         )
         spec.input(
-            "settings",
-            valid_type=orm.Dict,
-            required=False,
-            help="Use an additional node for special settings",
-        )
-
-        spec.input(
             "metadata.options.input_filename",
             valid_type=str,
             default=cls._DEFAULT_INPUT_FILE,
