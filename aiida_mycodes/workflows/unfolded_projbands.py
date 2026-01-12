@@ -443,11 +443,11 @@ class UnfoldedProjBandsWorkChain(WorkChain):
         unfolded_proj_scatter.store()
 
         self.out(
-            "unfolded_proj_contourf",
+            "unfolded_projected_bands_contourf",
             unfolded_proj_contourf,
         )
         self.out(
-            "unfolded_proj_scatter",
+            "unfolded_projected_bands_scatter",
             unfolded_proj_scatter,
         )
 
