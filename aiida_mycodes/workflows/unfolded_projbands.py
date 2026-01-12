@@ -182,6 +182,10 @@ class UnfoldedProjBandsWorkChain(WorkChain):
         )
         unklist_inputs["kpoints"] = self.ctx.bands_kpoints
 
+        self.report(
+            "Submitting UnklistCalculation to generate k-point list in supercell."
+        )
+
         return ToContext(
             unklist_calc=self.submit(
                 UnklistCalculation, **unklist_inputs
@@ -198,6 +202,10 @@ class UnfoldedProjBandsWorkChain(WorkChain):
                 f"UnklistCalculation<{unklist_calc.pk}> failed with exit status {unklist_calc.exit_status}"
             )
             return self.exit_codes.ERROR_UNKLIST_FAILED
+        else:
+            self.report(
+                f"UnklistCalculation<{unklist_calc.pk}> completed successfully."
+            )
 
         assert isinstance(
             unklist_calc.outputs.output_kpoints, orm.KpointsData
@@ -221,6 +229,10 @@ class UnfoldedProjBandsWorkChain(WorkChain):
         )
         projwfcbands_inputs.pop("bands_kpoints_distance", None)
 
+        self.report(
+            "Submitting MyProjwfcBandsWorkChain on supercell structure."
+        )
+
         return ToContext(
             projwfcbands_wc=self.submit(
                 MyProjwfcBandsWorkChain, **projwfcbands_inputs
@@ -237,6 +249,10 @@ class UnfoldedProjBandsWorkChain(WorkChain):
                 f"MyProjwfcBandsWorkChain<{projwfcbands_wc.pk}> failed with exit status {projwfcbands_wc.exit_status}"
             )
             return self.exit_codes.ERROR_PROJWFCBANDS_FAILED
+        else:
+            self.report(
+                f"MyProjwfcBandsWorkChain<{projwfcbands_wc.pk}> completed successfully."
+            )
 
         # Expose outputs from projwfcbands workchain
         self.out_many(
@@ -283,6 +299,10 @@ class UnfoldedProjBandsWorkChain(WorkChain):
             "deltae"
         ) or projwfc.get("DeltaE")
 
+        self.report(
+            "Submitting UnfoldCalculation for total band structure."
+        )
+
         return ToContext(
             unfold_total_calc=self.submit(
                 UnfoldCalculation, **unfold_inputs
@@ -299,6 +319,10 @@ class UnfoldedProjBandsWorkChain(WorkChain):
                 f"UnfoldCalculation (total) <{unfold_total_calc.pk}> failed with exit status {unfold_total_calc.exit_status}"
             )
             return self.exit_codes.ERROR_UNFOLD_TOTAL_FAILED
+        else:
+            self.report(
+                f"UnfoldCalculation (total) <{unfold_total_calc.pk}> completed successfully."
+            )
 
         assert isinstance(
             unfold_total_calc.outputs.output_contourf, orm.ArrayData
@@ -355,6 +379,9 @@ class UnfoldedProjBandsWorkChain(WorkChain):
                 [i + 1]
             )  # 1-based indexing
             inputs = unfold_inputs.copy()
+            self.report(
+                f"Submitting UnfoldCalculation for projected band structure of orbital {i+1}/{n_orbitals}."
+            )
             unfold_calc = self.submit(UnfoldCalculation, **inputs)
             self.to_context(
                 unfold_projections_calcs=append_(unfold_calc)
@@ -374,14 +401,20 @@ class UnfoldedProjBandsWorkChain(WorkChain):
             unfolded_proj_contourf.delete_array(name)
             unfolded_proj_scatter.delete_array(name)
 
+        n_orbitals = len(unfold_projections_calcs)
+
         for i, unfold_calc in enumerate(unfold_projections_calcs):
             assert isinstance(unfold_calc, orm.CalcJobNode)
 
             if not unfold_calc.is_finished_ok:
                 self.report(
-                    f"UnfoldCalculation (projections) # {i+1} <{unfold_calc.pk}> failed with exit status {unfold_calc.exit_status}"
+                    f"UnfoldCalculation (projections) # {i+1}/{n_orbitals} <{unfold_calc.pk}> failed with exit status {unfold_calc.exit_status}"
                 )
                 return self.exit_codes.ERROR_UNFOLD_PROJECTIONS_FAILED
+            else:
+                self.report(
+                    f"UnfoldCalculation (projections) # {i+1}/{n_orbitals} <{unfold_calc.pk}> completed successfully."
+                )
 
             assert isinstance(
                 unfold_calc.outputs.output_contourf, orm.ArrayData
