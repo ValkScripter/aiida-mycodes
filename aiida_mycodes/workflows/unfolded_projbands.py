@@ -15,8 +15,11 @@ The user will them sum on his own the unfolded projected band structures to get 
 band structure.
 """
 
+from ase import Atoms
+
 from aiida import orm
 from aiida.engine import ToContext, WorkChain, append_, if_, while_
+from aiida.tools.data.orbital import Orbital
 
 from aiida_mycodes.calculations.unfold import UnfoldCalculation
 from aiida_mycodes.calculations.unklist import UnklistCalculation
@@ -87,12 +90,6 @@ class UnfoldedProjBandsWorkChain(WorkChain):
             },
         )
         spec.input(
-            "orbital_groups",
-            valid_type=orm.List,
-            required=False,
-            help="Optional list of orbital groups (list of 0-indexed orbital numbers) for which to compute the unfolded projected band structures. If not provided, no projected bands will be computed.",
-        )
-        spec.input(
             "clean_workdir",
             valid_type=orm.Bool,
             default=lambda: orm.Bool(True),
@@ -137,12 +134,8 @@ class UnfoldedProjBandsWorkChain(WorkChain):
             cls.inspect_projwfcbands,
             cls.run_unfold_total,
             cls.inspect_unfold_total,
-            if_(
-                cls.should_run_projections
-            )(  # pyright: ignore[reportArgumentType]
-                cls.run_unfold_projections,  # pyright: ignore[reportArgumentType]
-                cls.inspect_unfold_projections,
-            ),  # pyright: ignore[reportArgumentType]
+            cls.run_unfold_projections,
+            cls.inspect_unfold_projections,
         )
 
         # Exit codes
@@ -351,20 +344,19 @@ class UnfoldedProjBandsWorkChain(WorkChain):
             unfold_total_calc.outputs.output_scatter,
         )
 
-    def should_run_projections(self):
-        """Determine whether to run the unfold calculations for projected band structures."""
-        return self.inputs.get("orbital_groups") is not None
-
     def run_unfold_projections(self):
-        """Run the projcted unfold calculation for each group of orbitals to compute the unfolded projected band structures."""
+        """Run the projcted unfold calculation for each group of orbitals (defined by elements) to compute the unfolded projected band structures."""
         unfold_inputs = self.exposed_inputs(
             UnfoldCalculation,
             namespace="unfold",
         )
         unfold_inputs["base_structure"] = self.ctx.base_structure
-        unfold_inputs["supercell_structure"] = (
-            self.ctx.supercell_structure
-        )
+        structure = self.ctx.supercell_structure
+        assert isinstance(structure, orm.StructureData)
+        ase_structure = structure.get_ase()
+        assert isinstance(ase_structure, Atoms)
+
+        unfold_inputs["supercell_structure"] = structure
         unfold_inputs["kpoints"] = self.ctx.bands_kpoints
         unfold_inputs.setdefault(
             "broadening", orm.Float(0.1)
@@ -390,21 +382,35 @@ class UnfoldedProjBandsWorkChain(WorkChain):
 
         projections = self.ctx.projections
         assert isinstance(projections, orm.ProjectionData)
-        n_orbitals = len(projections.get_orbitals())
 
-        orbital_groups = self.inputs.get("orbital_groups")
-        assert isinstance(orbital_groups, orm.List)
-        orbital_group_numbers: list[list[int]] = (
-            orbital_groups.get_list()
+        unique_elements = sorted(
+            set(ase_structure.get_chemical_symbols())
         )
+        self.ctx.unique_elements = unique_elements
+        self.report(f"Unique elements in structure: {unique_elements}")
 
-        for num, group in enumerate(orbital_group_numbers):
+        all_orbitals: list[Orbital] = projections.get_orbitals()
+        element_indices = {element: [] for element in unique_elements}
+        for i, orb in enumerate(all_orbitals):
+            orb_dict = orb.get_orbital_dict()
+            kind_name = orb_dict["kind_name"]
+            if kind_name in element_indices:
+                element_indices[kind_name].append(i)
+
+        # Log the number of orbitals found for each element
+        for element in unique_elements:
+            self.report(
+                f"Found {len(element_indices[element])} {element} orbitals."
+            )
+
+        for num, element in enumerate(unique_elements):
+            group = element_indices[element]
             unfold_inputs["proj_orbitals"] = orm.List(
                 [i + 1 for i in group]
             )  # 1-based indexing
             inputs = unfold_inputs.copy()
             self.report(
-                f"Submitting UnfoldCalculation for projected band structure of orbital group {num+1}/{len(orbital_group_numbers)}."
+                f"Submitting UnfoldCalculation for projected band structure of element '{element}' ({num+1}/{len(unique_elements)})."
             )
             unfold_calc = self.submit(UnfoldCalculation, **inputs)
             self.to_context(
@@ -420,17 +426,19 @@ class UnfoldedProjBandsWorkChain(WorkChain):
 
         n_groups = len(unfold_projections_calcs)
 
-        for i, unfold_calc in enumerate(unfold_projections_calcs):
+        for i, (unfold_calc, element) in enumerate(
+            zip(unfold_projections_calcs, self.ctx.unique_elements)
+        ):
             assert isinstance(unfold_calc, orm.CalcJobNode)
 
             if not unfold_calc.is_finished_ok:
                 self.report(
-                    f"UnfoldCalculation (projections) # {i+1}/{n_groups} <{unfold_calc.pk}> failed with exit status {unfold_calc.exit_status}"
+                    f"UnfoldCalculation (projections) for element '{element}' # {i+1}/{n_groups} <{unfold_calc.pk}> failed with exit status {unfold_calc.exit_status}"
                 )
                 return self.exit_codes.ERROR_UNFOLD_PROJECTIONS_FAILED
             else:
                 self.report(
-                    f"UnfoldCalculation (projections) # {i+1}/{n_groups} <{unfold_calc.pk}> completed successfully."
+                    f"UnfoldCalculation (projections) for element '{element}' # {i+1}/{n_groups} <{unfold_calc.pk}> completed successfully."
                 )
 
             assert isinstance(
@@ -444,12 +452,12 @@ class UnfoldedProjBandsWorkChain(WorkChain):
             for name in contourf.get_arraynames():
                 array = contourf.get_array(name)
                 unfolded_proj_contourf.set_array(
-                    f"{name}_group_{i}", array
+                    f"{name}_element_{element}", array
                 )
             for name in scatter.get_arraynames():
                 array = scatter.get_array(name)
                 unfolded_proj_scatter.set_array(
-                    f"{name}_group_{i}", array
+                    f"{name}_element_{element}", array
                 )
 
         unfolded_proj_contourf.store()
