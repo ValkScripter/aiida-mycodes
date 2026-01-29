@@ -87,6 +87,12 @@ class UnfoldedProjBandsWorkChain(WorkChain):
             },
         )
         spec.input(
+            "orbital_groups",
+            valid_type=orm.List,
+            required=False,
+            help="Optional list of orbital groups (list of 0-indexed orbital numbers) for which to compute the unfolded projected band structures. If not provided, no projected bands will be computed.",
+        )
+        spec.input(
             "clean_workdir",
             valid_type=orm.Bool,
             default=lambda: orm.Bool(True),
@@ -113,12 +119,12 @@ class UnfoldedProjBandsWorkChain(WorkChain):
         )
         spec.output(
             "unfolded_projected_bands_contourf",
-            valid_type=orm.ProjectionData,
+            valid_type=orm.ArrayData,
             help="The unfolded projected band structures (contourf format).",
         )
         spec.output(
             "unfolded_projected_bands_scatter",
-            valid_type=orm.ProjectionData,
+            valid_type=orm.ArrayData,
             help="The unfolded projected band structures (scatter format).",
         )
 
@@ -131,8 +137,12 @@ class UnfoldedProjBandsWorkChain(WorkChain):
             cls.inspect_projwfcbands,
             cls.run_unfold_total,
             cls.inspect_unfold_total,
-            cls.run_unfold_projections,
-            cls.inspect_unfold_projections,
+            if_(
+                cls.should_run_projections
+            )(  # pyright: ignore[reportArgumentType]
+                cls.run_unfold_projections,  # pyright: ignore[reportArgumentType]
+                cls.inspect_unfold_projections,
+            ),  # pyright: ignore[reportArgumentType]
         )
 
         # Exit codes
@@ -341,8 +351,12 @@ class UnfoldedProjBandsWorkChain(WorkChain):
             unfold_total_calc.outputs.output_scatter,
         )
 
+    def should_run_projections(self):
+        """Determine whether to run the unfold calculations for projected band structures."""
+        return self.inputs.get("orbital_groups") is not None
+
     def run_unfold_projections(self):
-        """Run the unfold calculation for each wavefunction projection to compute the unfolded projected band structures."""
+        """Run the projcted unfold calculation for each group of orbitals to compute the unfolded projected band structures."""
         unfold_inputs = self.exposed_inputs(
             UnfoldCalculation,
             namespace="unfold",
@@ -378,13 +392,19 @@ class UnfoldedProjBandsWorkChain(WorkChain):
         assert isinstance(projections, orm.ProjectionData)
         n_orbitals = len(projections.get_orbitals())
 
-        for i in range(n_orbitals):
+        orbital_groups = self.inputs.get("orbital_groups")
+        assert isinstance(orbital_groups, orm.List)
+        orbital_group_numbers: list[list[int]] = (
+            orbital_groups.get_list()
+        )
+
+        for num, group in enumerate(orbital_group_numbers):
             unfold_inputs["proj_orbitals"] = orm.List(
-                [i + 1]
+                [i + 1 for i in group]
             )  # 1-based indexing
             inputs = unfold_inputs.copy()
             self.report(
-                f"Submitting UnfoldCalculation for projected band structure of orbital {i+1}/{n_orbitals}."
+                f"Submitting UnfoldCalculation for projected band structure of orbital group {num+1}/{len(orbital_group_numbers)}."
             )
             unfold_calc = self.submit(UnfoldCalculation, **inputs)
             self.to_context(
@@ -395,29 +415,22 @@ class UnfoldedProjBandsWorkChain(WorkChain):
         """Inspect the outputs of the unfold calculations for the projected band structures."""
         unfold_projections_calcs = self.ctx.unfold_projections_calcs
 
-        assert isinstance(self.ctx.projections, orm.ProjectionData)
+        unfolded_proj_contourf = orm.ArrayData()
+        unfolded_proj_scatter = orm.ArrayData()
 
-        unfolded_proj_contourf = self.ctx.projections.clone()
-        unfolded_proj_scatter = self.ctx.projections.clone()
-
-        old_arraynames = self.ctx.projections.get_arraynames()
-        for name in old_arraynames:
-            unfolded_proj_contourf.delete_array(name)
-            unfolded_proj_scatter.delete_array(name)
-
-        n_orbitals = len(unfold_projections_calcs)
+        n_groups = len(unfold_projections_calcs)
 
         for i, unfold_calc in enumerate(unfold_projections_calcs):
             assert isinstance(unfold_calc, orm.CalcJobNode)
 
             if not unfold_calc.is_finished_ok:
                 self.report(
-                    f"UnfoldCalculation (projections) # {i+1}/{n_orbitals} <{unfold_calc.pk}> failed with exit status {unfold_calc.exit_status}"
+                    f"UnfoldCalculation (projections) # {i+1}/{n_groups} <{unfold_calc.pk}> failed with exit status {unfold_calc.exit_status}"
                 )
                 return self.exit_codes.ERROR_UNFOLD_PROJECTIONS_FAILED
             else:
                 self.report(
-                    f"UnfoldCalculation (projections) # {i+1}/{n_orbitals} <{unfold_calc.pk}> completed successfully."
+                    f"UnfoldCalculation (projections) # {i+1}/{n_groups} <{unfold_calc.pk}> completed successfully."
                 )
 
             assert isinstance(
@@ -431,12 +444,12 @@ class UnfoldedProjBandsWorkChain(WorkChain):
             for name in contourf.get_arraynames():
                 array = contourf.get_array(name)
                 unfolded_proj_contourf.set_array(
-                    f"{name}_orbital_{i}", array
+                    f"{name}_group_{i}", array
                 )
             for name in scatter.get_arraynames():
                 array = scatter.get_array(name)
                 unfolded_proj_scatter.set_array(
-                    f"{name}_orbital_{i}", array
+                    f"{name}_group_{i}", array
                 )
 
         unfolded_proj_contourf.store()
