@@ -304,6 +304,15 @@ class UnfoldedProjBandsWorkChain(WorkChain):
             "deltae"
         ) or projwfc.get("DeltaE")
 
+        label = unfold_inputs.get("metadata", {}).get("label")
+        if label:
+            unfold_inputs["metadata"]["label"] = f"{label}_total"
+        else:
+            unfold_inputs.setdefault("metadata", {}).setdefault(
+                "label",
+                f"{self.ctx.supercell_structure.label}_unfold_total",
+            )
+
         self.report(
             "Submitting UnfoldCalculation for total band structure."
         )
@@ -380,6 +389,8 @@ class UnfoldedProjBandsWorkChain(WorkChain):
             "deltae"
         ) or projwfc.get("DeltaE")
 
+        label = unfold_inputs.get("metadata", {}).get("label")
+
         projections = self.ctx.projections
         assert isinstance(projections, orm.ProjectionData)
 
@@ -408,6 +419,17 @@ class UnfoldedProjBandsWorkChain(WorkChain):
             unfold_inputs["proj_orbitals"] = orm.List(
                 [i + 1 for i in group]
             )  # 1-based indexing
+
+            if label:
+                unfold_inputs["metadata"][
+                    "label"
+                ] = f"{label}_element_{element}"
+            else:
+                unfold_inputs.setdefault("metadata", {}).setdefault(
+                    "label",
+                    f"{self.ctx.supercell_structure.label}_unfold_element_{element}",
+                )
+
             inputs = unfold_inputs.copy()
             self.report(
                 f"Submitting UnfoldCalculation for projected band structure of element '{element}' ({num+1}/{len(unique_elements)})."
