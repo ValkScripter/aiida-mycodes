@@ -190,7 +190,7 @@ class UnklistCalculation(CalcJob):
             input_file_content += "TRMAT\n"
             transformation = np.round(
                 np.linalg.inv(primitive @ np.linalg.inv(supercell)),
-                5,
+                0,
             )
             for row in transformation:
                 a, b, c = list(map(int, row))
