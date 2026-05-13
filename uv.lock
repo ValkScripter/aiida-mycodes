@@ -135,7 +135,7 @@ requires-dist = [
     { name = "aiida-fireball", git = "https://github.com/ValkScripter/aiida-fireball" },
     { name = "aiida-optimize", specifier = ">=1.0.2" },
     { name = "aiida-quantumespresso", git = "https://github.com/ValkScripter/aiida-quantumespresso?branch=perso" },
-    { name = "aiida-wannier90-workflows" },
+    { name = "aiida-wannier90-workflows", git = "https://github.com/ValkScripter/aiida-wannier90-workflows?branch=perso" },
     { name = "coverage", extras = ["toml"], marker = "extra == 'testing'" },
     { name = "furo", marker = "extra == 'docs'" },
     { name = "markupsafe", marker = "extra == 'docs'", specifier = "<2.1" },
@@ -216,8 +216,8 @@ wheels = [
 
 [[package]]
 name = "aiida-wannier90-workflows"
-version = "2.5.0"
-source = { registry = "https://pypi.org/simple" }
+version = "2.7.1"
+source = { git = "https://github.com/ValkScripter/aiida-wannier90-workflows?branch=perso#1b764b75ed61610ef70a6c844273f43d9246acb3" }
 dependencies = [
     { name = "aiida-core" },
     { name = "aiida-pseudo" },
@@ -225,10 +225,6 @@ dependencies = [
     { name = "aiida-wannier90" },
     { name = "click" },
     { name = "colorama" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/05/a7/8639faf3b75294f9294d680420c0b5db3415bc656fd202ac4db7226ae6ca/aiida_wannier90_workflows-2.5.0.tar.gz", hash = "sha256:02ae490d2cad26cbed041372952c02b714e3eb98e6ef10d507315c54ba9c209a", size = 151265, upload-time = "2025-07-09T08:54:40.019Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/d1/23/3129c99f71f039baadfcfc0c3a9b8e571cd9a90e525712584357dd59a14c/aiida_wannier90_workflows-2.5.0-py3-none-any.whl", hash = "sha256:af4d13d7630cab609c6ba0ffe6699f4e025863c70364ac283de2f96be7e9af39", size = 192037, upload-time = "2025-07-09T08:54:38.022Z" },
 ]
 
 [[package]]
