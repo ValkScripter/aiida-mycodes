@@ -114,9 +114,10 @@ See the [developer guide](http://aiida-mycodes.readthedocs.io/en/latest/develope
 ## License
 
 MIT
+
 ## Contact
 
-valkscode@gmail.com
+valkscode@proton.me
 
 
 [ci-badge]: https://github.com/ValkScripter/aiida-mycodes/workflows/ci/badge.svg?branch=master
