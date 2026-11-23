@@ -27,6 +27,7 @@ dependencies = [
   "aiida-optimize>=1.0.2",
   "aiida-quantumespresso",
   "aiida-wannier90-workflows",
+  "aiida-epw",
   "pymc",
   "voluptuous",
 ]
@@ -172,5 +173,5 @@ commands_post = echo "open file://{toxinidir}/docs/build/html/index.html"
 [tool.uv.sources]
 aiida-fireball = { git = "https://github.com/ValkScripter/aiida-fireball" }
 aiida-quantumespresso = { git = "https://github.com/ValkScripter/aiida-quantumespresso", branch = "perso" }
-aiida-wannier90-workflows = { git = "https://github.com/ValkScripter/aiida-wannier90-workflows", branch = "perso" }
+# aiida-wannier90-workflows = { git = "https://github.com/ValkScripter/aiida-wannier90-workflows", branch = "perso" }
 aiida-epw = { git = "https://github.com/ValkScripter/aiida-epw", branch = "perso" }

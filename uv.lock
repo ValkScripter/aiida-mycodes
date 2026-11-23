@@ -94,6 +94,20 @@ atomic-tools = [
 ]
 
 [[package]]
+name = "aiida-epw"
+version = "0.1.0"
+source = { git = "https://github.com/ValkScripter/aiida-epw?branch=perso#9f4563eed37fe3624fc9d67b1ef61d144ad8cfef" }
+dependencies = [
+    { name = "aiida-core" },
+    { name = "aiida-quantumespresso" },
+    { name = "aiida-wannier90" },
+    { name = "aiida-wannier90-workflows" },
+    { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
+    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version == '3.11.*'" },
+    { name = "numpy", version = "2.5.5", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
+]
+
+[[package]]
 name = "aiida-fireball"
 version = "0.1.0a0"
 source = { git = "https://github.com/ValkScripter/aiida-fireball#ee26cc9c7083afa65c8a259b774f5987b5ad4a4d" }
@@ -121,6 +135,7 @@ name = "aiida-mycodes"
 source = { editable = "." }
 dependencies = [
     { name = "aiida-core" },
+    { name = "aiida-epw" },
     { name = "aiida-fireball" },
     { name = "aiida-optimize" },
     { name = "aiida-quantumespresso" },
@@ -158,10 +173,11 @@ testing = [
 [package.metadata]
 requires-dist = [
     { name = "aiida-core", specifier = ">=2.5" },
+    { name = "aiida-epw", git = "https://github.com/ValkScripter/aiida-epw?branch=perso" },
     { name = "aiida-fireball", git = "https://github.com/ValkScripter/aiida-fireball" },
     { name = "aiida-optimize", specifier = ">=1.0.2" },
     { name = "aiida-quantumespresso", git = "https://github.com/ValkScripter/aiida-quantumespresso?branch=perso" },
-    { name = "aiida-wannier90-workflows", git = "https://github.com/ValkScripter/aiida-wannier90-workflows?branch=perso" },
+    { name = "aiida-wannier90-workflows" },
     { name = "coverage", extras = ["toml"], marker = "extra == 'testing'" },
     { name = "furo", marker = "extra == 'docs'" },
     { name = "markupsafe", marker = "extra == 'docs'", specifier = "<2.1" },
@@ -239,7 +255,7 @@ dependencies = [
 [[package]]
 name = "aiida-wannier90"
 version = "2.2.0"
-source = { git = "https://github.com/aiidateam/aiida-wannier90.git#7e11f0d5ffb92e63a427610f6c9610ab02063cfe" }
+source = { git = "https://github.com/aiidateam/aiida-wannier90.git?rev=5b9436943fa04643ed44c7f6fd48b361e5470ef4#5b9436943fa04643ed44c7f6fd48b361e5470ef4" }
 dependencies = [
     { name = "aiida-core" },
 ]
@@ -247,7 +263,7 @@ dependencies = [
 [[package]]
 name = "aiida-wannier90-workflows"
 version = "2.7.1"
-source = { git = "https://github.com/ValkScripter/aiida-wannier90-workflows?branch=perso#974a8f83943b1cea3d076bc761d6218198dfd886" }
+source = { git = "https://github.com/aiidateam/aiida-wannier90-workflows.git?rev=8b79e5ad9c06f9e9008c3bf5003932e8a9cca2f3#8b79e5ad9c06f9e9008c3bf5003932e8a9cca2f3" }
 dependencies = [
     { name = "aiida-core" },
     { name = "aiida-pseudo" },
